@@ -24,7 +24,7 @@ export default function HubermanChat() {
     setLoading(true);
 
     try {
-      const res = await fetch('http://localhost:8000/api/v1/admin/huberman-rag', {
+      const res = await fetch('https://strings-api.onrender.com/api/v1/admin/huberman-rag', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ query: q, top_k: 3, stream: false })

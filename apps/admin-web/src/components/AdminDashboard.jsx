@@ -5,7 +5,7 @@ import {
   AlertTriangle, CheckCircle2, ArrowUpRight, Zap, Radio
 } from 'lucide-react';
 
-const API_BASE = 'http://localhost:8000';
+const API_BASE = (typeof process !== 'undefined' && process.env?.NEXT_PUBLIC_API_URL) || 'https://strings-api.onrender.com';
 
 export default function AdminDashboard({ onBackToSimulator }) {
   // --- State ---

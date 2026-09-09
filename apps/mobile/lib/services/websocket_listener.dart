@@ -2,10 +2,11 @@ import 'dart:convert';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
 class WebSocketListener {
+  static const String defaultWsUrl = 'wss://strings-api.onrender.com/ws';
   final String wsUrl;
   WebSocketChannel? _channel;
 
-  WebSocketListener({this.wsUrl = 'ws://localhost:4000/ws'});
+  WebSocketListener({this.wsUrl = defaultWsUrl});
 
   Stream<dynamic>? connect() {
     try {

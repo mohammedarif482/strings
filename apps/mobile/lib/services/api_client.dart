@@ -4,13 +4,16 @@ import '../models/prediction.dart';
 import '../models/daily_checkin.dart';
 
 class ApiClient {
-  final String baseUrl;
+  static const String baseUrl = 'https://strings-api.onrender.com';
+  final String url;
   final String userId;
 
+  String get baseUrl => url;
+
   ApiClient({
-    this.baseUrl = 'http://localhost:4000',
+    String? baseUrl,
     this.userId = 'usr_alex',
-  });
+  }) : url = baseUrl ?? ApiClient.baseUrl;
 
   Future<Prediction?> fetchTodayPrediction() async {
     try {

@@ -3,15 +3,18 @@ import 'dart:convert';
 import 'dart:io';
 
 class AivoCloudClient {
-  final String baseUrl;
+  static const String baseUrl = 'https://strings-api.onrender.com';
+  final String url;
   final String userId;
   StreamSubscription? _sseSubscription;
   final _eventController = StreamController<Map<String, dynamic>>.broadcast();
 
+  String get baseUrl => url;
+
   AivoCloudClient({
-    this.baseUrl = 'http://localhost:8080',
+    String? baseUrl,
     this.userId = 'alex_01',
-  });
+  }) : url = baseUrl ?? AivoCloudClient.baseUrl;
 
   Stream<Map<String, dynamic>> get realtimeEvents => _eventController.stream;
 
