@@ -1,0 +1,278 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Aivo Predictive Biological & Relationship Wellness API",
+    "version": "1.0.0",
+    "description": "Production REST API for biometric ingestion, deterministic biological state prediction, privacy-bounded partner synchronization, and real-time push loops."
+  },
+  "servers": [
+    {
+      "url": "http://localhost:8080/api/v1",
+      "description": "Local Development Server"
+    },
+    {
+      "url": "https://api.aivo.health/api/v1",
+      "description": "Production Cloud Server"
+    }
+  ],
+  "paths": {
+    "/auth/register": {
+      "post": {
+        "summary": "Register new user account",
+        "operationId": "registerUser",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["name", "email", "password"],
+                "properties": {
+                  "name": { "type": "string", "example": "Dr. Alex Rivera" },
+                  "email": { "type": "string", "format": "email", "example": "alex@aivo.health" },
+                  "password": { "type": "string", "minLength": 6, "example": "superSecret123" },
+                  "cycleStartDate": { "type": "string", "format": "date", "example": "2026-08-25" },
+                  "averageCycleLength": { "type": "integer", "default": 28, "example": 28 },
+                  "timezone": { "type": "string", "default": "UTC", "example": "America/Toronto" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "User created successfully" },
+          "400": { "description": "Validation failed" },
+          "409": { "description": "User already exists" }
+        }
+      }
+    },
+    "/auth/login": {
+      "post": {
+        "summary": "Authenticate user credentials",
+        "operationId": "loginUser",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["email", "password"],
+                "properties": {
+                  "email": { "type": "string", "format": "email" },
+                  "password": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Authenticated session returned" },
+          "401": { "description": "Invalid credentials" }
+        }
+      }
+    },
+    "/user/profile": {
+      "post": {
+        "summary": "Update cycle phase parameters and timezone",
+        "operationId": "updateProfile",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": { "type": "string" },
+                  "cycleStartDate": { "type": "string", "format": "date" },
+                  "averageCycleLength": { "type": "integer" },
+                  "timezone": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Profile updated" }
+        }
+      },
+      "get": {
+        "summary": "Get user profile and privacy settings",
+        "operationId": "getProfile",
+        "parameters": [
+          { "name": "userId", "in": "query", "required": false, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": { "description": "Profile retrieved" }
+        }
+      }
+    },
+    "/checkins": {
+      "post": {
+        "summary": "Submit 30-sec daily check-in (triggers prediction recalculation)",
+        "operationId": "submitCheckin",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["userId", "moodScore", "stressScore", "energyLevel", "sleepHours"],
+                "properties": {
+                  "userId": { "type": "string" },
+                  "date": { "type": "string", "format": "date" },
+                  "moodScore": { "type": "integer", "minimum": 1, "maximum": 10 },
+                  "stressScore": { "type": "integer", "minimum": 1, "maximum": 10 },
+                  "energyLevel": { "type": "integer", "minimum": 1, "maximum": 10 },
+                  "sleepHours": { "type": "number", "minimum": 0, "maximum": 24 },
+                  "notes": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "Check-in ingested and prediction recalculated" }
+        }
+      }
+    },
+    "/wearable/stream": {
+      "post": {
+        "summary": "Ingest high-frequency wearable data packet",
+        "operationId": "ingestWearablePacket",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["userId", "hrv_ms", "resting_hr", "deep_sleep_minutes"],
+                "properties": {
+                  "userId": { "type": "string" },
+                  "hrv_ms": { "type": "integer", "example": 78 },
+                  "resting_hr": { "type": "integer", "example": 58 },
+                  "deep_sleep_minutes": { "type": "integer", "example": 115 },
+                  "is_simulated": { "type": "boolean", "default": false },
+                  "simulation_run_id": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "Packet saved and broadcast to live clients" }
+        }
+      }
+    },
+    "/predictions/today": {
+      "get": {
+        "summary": "Fetch active prediction card, clinical protocol, and wellness score",
+        "operationId": "getTodayPrediction",
+        "parameters": [
+          { "name": "userId", "in": "query", "required": false, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": { "description": "Prediction result payload" }
+        }
+      }
+    },
+    "/predictions/history": {
+      "get": {
+        "summary": "Fetch 14/28-day historical predictions and readiness trend",
+        "operationId": "getPredictionHistory",
+        "parameters": [
+          { "name": "userId", "in": "query", "required": false, "schema": { "type": "string" } },
+          { "name": "days", "in": "query", "required": false, "schema": { "type": "integer", "default": 14 } }
+        ],
+        "responses": {
+          "200": { "description": "Chronological history array" }
+        }
+      }
+    },
+    "/partners/invite": {
+      "post": {
+        "summary": "Generate 6-digit invitation code and deep link (24h expiry)",
+        "operationId": "createPartnerInvite",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["userId"],
+                "properties": {
+                  "userId": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "Invitation code and QR payload generated" }
+        }
+      }
+    },
+    "/partners/accept": {
+      "post": {
+        "summary": "Accept partner invitation and link accounts bi-directionally",
+        "operationId": "acceptPartnerInvite",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["userId", "code"],
+                "properties": {
+                  "userId": { "type": "string" },
+                  "code": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Partners paired successfully" }
+        }
+      }
+    },
+    "/partners/status": {
+      "get": {
+        "summary": "Fetch partner's current predicted state card with privacy filtering",
+        "operationId": "getPartnerStatus",
+        "parameters": [
+          { "name": "userId", "in": "query", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": { "description": "Sanitized partner card" }
+        }
+      }
+    },
+    "/nudges/{id}/feedback": {
+      "post": {
+        "summary": "Log was_helpful rating and tap-back reaction text",
+        "operationId": "submitNudgeFeedback",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["was_helpful"],
+                "properties": {
+                  "was_helpful": { "type": "boolean" },
+                  "supportReaction": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Feedback registered and reaction relayed" }
+        }
+      }
+    }
+  }
+}
