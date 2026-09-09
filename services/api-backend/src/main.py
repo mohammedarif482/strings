@@ -10,14 +10,22 @@ import math
 import asyncio
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Set
 
-from fastapi import FastAPI, Query, HTTPException, Request, Header
+from fastapi import FastAPI, Query, HTTPException, Request, Header, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, JSONResponse
 from pydantic import BaseModel, Field
 
 # Try relative and package-level imports
+try:
+    from .services.simulator import simulator, BiometricTelemetry
+except ImportError:
+    try:
+        from src.services.simulator import simulator, BiometricTelemetry
+    except ImportError:
+        from services.simulator import simulator, BiometricTelemetry
+
 try:
     from .ingest_huberman import compute_semantic_embedding, DATA_DIR
 except ImportError:
@@ -48,19 +56,112 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Global in-memory storage for rapid responses and fallback
+# Global in-memory storage, subscribers, and fallback DB
+DATABASE_URL = os.environ.get("DATABASE_URL")
+STREAM_SUBSCRIBERS: Set[asyncio.Queue] = set()
 HUBERMAN_STORE: List[Dict[str, Any]] = []
 ADMIN_QUERY_LOGS: List[Dict[str, Any]] = []
 IN_MEMORY_DB = {
     "users": [
         {"id": "usr_alex", "email": "alex@aivo.health", "partner_id": "usr_sarah", "cycle_start_date": "2026-08-20", "average_cycle_length": 28},
-        {"id": "usr_sarah", "email": "sarah@aivo.health", "partner_id": "usr_alex", "cycle_start_date": "2026-08-15", "average_cycle_length": 28}
+        {"id": "usr_sarah", "email": "sarah@aivo.health", "partner_id": "usr_alex", "cycle_start_date": "2026-08-15", "average_cycle_length": 28},
+        {"id": "USR-ALPHA", "email": "alpha@aivo.health", "partner_id": "USR-BETA", "cycle_start_date": "2026-08-17", "average_cycle_length": 28},
+        {"id": "USR-BETA", "email": "beta@aivo.health", "partner_id": "USR-ALPHA", "cycle_start_date": "2026-09-01", "average_cycle_length": 28}
     ],
     "checkins": [],
-    "nudges": []
+    "nudges": [],
+    "telemetry": []
 }
 
 START_TIME = time.time()
+
+
+async def persist_telemetry_records(telemetry_list: List[BiometricTelemetry]):
+    """Persists real-time telemetry records into in-memory table and PostgreSQL if configured."""
+    if "telemetry" not in IN_MEMORY_DB:
+        IN_MEMORY_DB["telemetry"] = []
+    
+    for t in telemetry_list:
+        data = t.to_dict() if hasattr(t, "to_dict") else t.dict()
+        IN_MEMORY_DB["telemetry"].insert(0, data)
+    
+    if len(IN_MEMORY_DB["telemetry"]) > 1000:
+        IN_MEMORY_DB["telemetry"] = IN_MEMORY_DB["telemetry"][:1000]
+
+    if DATABASE_URL:
+        try:
+            import asyncpg
+            conn = await asyncpg.connect(DATABASE_URL)
+            try:
+                await conn.execute("""
+                    CREATE TABLE IF NOT EXISTS telemetry (
+                        id SERIAL PRIMARY KEY,
+                        user_id VARCHAR(50) NOT NULL,
+                        timestamp TIMESTAMPTZ NOT NULL,
+                        hrv_ms INT NOT NULL,
+                        heart_rate_bpm INT NOT NULL,
+                        cycle_phase VARCHAR(100),
+                        cortisol_state VARCHAR(50),
+                        couple_stress_index FLOAT
+                    );
+                """)
+                for t in telemetry_list:
+                    await conn.execute("""
+                        INSERT INTO telemetry (user_id, timestamp, hrv_ms, heart_rate_bpm, cycle_phase, cortisol_state, couple_stress_index)
+                        VALUES ($1, $2, $3, $4, $5, $6, $7)
+                    """, t.user_id, t.timestamp, t.hrv_ms, t.heart_rate_bpm, t.cycle_phase, t.cortisol_state, t.couple_stress_index)
+            finally:
+                await conn.close()
+        except Exception:
+            pass
+
+
+async def broadcast_stream_event(event_dict: Dict[str, Any]):
+    """Broadcasts biometric telemetry events to all active SSE/WebSocket subscribers."""
+    dead = set()
+    for q in list(STREAM_SUBSCRIBERS):
+        try:
+            q.put_nowait(event_dict)
+        except Exception:
+            dead.add(q)
+    for q in dead:
+        STREAM_SUBSCRIBERS.discard(q)
+
+
+async def run_biometrics_simulation_loop():
+    """Autonomous 10-second biometrics simulation engine loop."""
+    print("[Simulator] Initializing 10-second biometrics telemetry background loop...")
+    while True:
+        try:
+            ticks = simulator.generate_telemetry_tick()
+            combined_csi = simulator.compute_couple_stress_index(ticks[0], ticks[1])
+
+            # 1. Persist to DB / in-memory
+            await persist_telemetry_records(ticks)
+
+            # 2. Emit telemetry event
+            event_payload = {
+                "event": "biometric_telemetry",
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "profiles": [t.to_dict() if hasattr(t, "to_dict") else t.dict() for t in ticks],
+                "combined_couple_stress_index": combined_csi,
+                "user_id": ticks[0].user_id,
+                "hrv": ticks[0].hrv_ms,
+                "resting_hr": ticks[0].heart_rate_bpm,
+                "cycle_phase": ticks[0].cycle_phase,
+                "cortisol_state": ticks[0].cortisol_state,
+                "couple_stress_index": ticks[0].couple_stress_index,
+            }
+            await broadcast_stream_event(event_payload)
+        except Exception as e:
+            print(f"[Simulator Loop Exception]: {e}")
+
+        await asyncio.sleep(10)
+
+
+@app.on_event("startup")
+async def on_startup():
+    asyncio.create_task(run_biometrics_simulation_loop())
 
 
 def load_vector_store():
@@ -226,65 +327,193 @@ def submit_feedback(nudge_id: str, payload: NudgeFeedbackPayload):
     return {"status": "success", "nudge": nudge}
 
 
-# --- SSE Telemetry Stream ---
+# --- SSE & WebSocket Telemetry Stream ---
 @app.get("/api/v1/stream")
-async def stream_telemetry():
+async def stream_telemetry(request: Request):
+    q = asyncio.Queue(maxsize=100)
+    STREAM_SUBSCRIBERS.add(q)
+
     async def event_generator():
-        while True:
-            payload = {
+        try:
+            # Yield initial snapshot immediately so client gets data on connect
+            ticks = simulator.generate_telemetry_tick()
+            combined_csi = simulator.compute_couple_stress_index(ticks[0], ticks[1])
+            initial_event = {
+                "event": "biometric_telemetry",
                 "timestamp": datetime.now(timezone.utc).isoformat(),
-                "event": "biometric_heartbeat",
-                "hrv": round(55 + (math.sin(time.time()) * 8), 1),
-                "resting_hr": round(62 + (math.cos(time.time()) * 4), 1)
+                "profiles": [t.to_dict() if hasattr(t, "to_dict") else t.dict() for t in ticks],
+                "combined_couple_stress_index": combined_csi,
+                "user_id": ticks[0].user_id,
+                "hrv": ticks[0].hrv_ms,
+                "resting_hr": ticks[0].heart_rate_bpm,
+                "cycle_phase": ticks[0].cycle_phase,
+                "cortisol_state": ticks[0].cortisol_state,
+                "couple_stress_index": ticks[0].couple_stress_index,
             }
-            yield f"data: {json.dumps(payload)}\n\n"
-            await asyncio.sleep(5)
+            yield f"data: {json.dumps(initial_event, default=str)}\n\n"
 
-    return StreamingResponse(event_generator(), media_type="text/event-stream")
+            while True:
+                if await request.is_disconnected():
+                    break
+                try:
+                    event = await asyncio.wait_for(q.get(), timeout=12.0)
+                    yield f"data: {json.dumps(event, default=str)}\n\n"
+                except asyncio.TimeoutError:
+                    yield f": keepalive\n\n"
+        finally:
+            STREAM_SUBSCRIBERS.discard(q)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        }
+    )
 
 
-# --- Admin Analytics & Prediction Feed ---
+@app.websocket("/api/v1/stream/ws")
+async def websocket_stream_telemetry(websocket: WebSocket):
+    await websocket.accept()
+    q = asyncio.Queue(maxsize=100)
+    STREAM_SUBSCRIBERS.add(q)
+    try:
+        ticks = simulator.generate_telemetry_tick()
+        combined_csi = simulator.compute_couple_stress_index(ticks[0], ticks[1])
+        initial_event = {
+            "event": "biometric_telemetry",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "profiles": [t.to_dict() if hasattr(t, "to_dict") else t.dict() for t in ticks],
+            "combined_couple_stress_index": combined_csi,
+            "user_id": ticks[0].user_id,
+            "hrv": ticks[0].hrv_ms,
+            "resting_hr": ticks[0].heart_rate_bpm,
+        }
+        await websocket.send_text(json.dumps(initial_event, default=str))
+        while True:
+            event = await q.get()
+            await websocket.send_json(event)
+    except (WebSocketDisconnect, Exception):
+        pass
+    finally:
+        STREAM_SUBSCRIBERS.discard(q)
+
+
+# --- Admin Seed & Analytics Endpoints ---
+@app.post("/api/v1/admin/seed-simulation")
+async def seed_simulation(days: int = Query(default=14, ge=1, le=90)):
+    """Generates 14 days of backdated historical HRV/biometric data for both test users."""
+    result = simulator.generate_historical_seed(days=days)
+    records = result.get("records", {})
+    
+    if "telemetry" not in IN_MEMORY_DB:
+        IN_MEMORY_DB["telemetry"] = []
+    if "checkins" not in IN_MEMORY_DB:
+        IN_MEMORY_DB["checkins"] = []
+
+    for chk in records.get("checkins", []):
+        IN_MEMORY_DB["checkins"].insert(0, chk)
+    for t in records.get("telemetry", []):
+        IN_MEMORY_DB["telemetry"].insert(0, t)
+
+    if DATABASE_URL:
+        try:
+            import asyncpg
+            conn = await asyncpg.connect(DATABASE_URL)
+            try:
+                await conn.execute("""
+                    CREATE TABLE IF NOT EXISTS telemetry (
+                        id SERIAL PRIMARY KEY,
+                        user_id VARCHAR(50) NOT NULL,
+                        timestamp TIMESTAMPTZ NOT NULL,
+                        hrv_ms INT NOT NULL,
+                        heart_rate_bpm INT NOT NULL,
+                        cycle_phase VARCHAR(100),
+                        cortisol_state VARCHAR(50),
+                        couple_stress_index FLOAT
+                    );
+                """)
+                for t in records.get("telemetry", []):
+                    ts = datetime.fromisoformat(t["timestamp"]) if isinstance(t["timestamp"], str) else t["timestamp"]
+                    await conn.execute("""
+                        INSERT INTO telemetry (user_id, timestamp, hrv_ms, heart_rate_bpm, cycle_phase, cortisol_state, couple_stress_index)
+                        VALUES ($1, $2, $3, $4, $5, $6, $7)
+                    """, t["user_id"], ts, t["hrv_ms"], t["heart_rate_bpm"], t["cycle_phase"], t["cortisol_state"], t["couple_stress_index"])
+            finally:
+                await conn.close()
+        except Exception:
+            pass
+
+    return {
+        "status": "success",
+        "message": f"Successfully generated and seeded {days} days of historical biometric data for USR-ALPHA and USR-BETA.",
+        "days_seeded": days,
+        "profiles": ["USR-ALPHA", "USR-BETA"],
+        "total_telemetry_points": result["total_telemetry_points"],
+        "total_checkin_records": result["total_checkin_records"],
+        "telemetry_sample": result["telemetry_sample"],
+        "checkin_sample": result["checkin_sample"],
+    }
+
+
 @app.get("/api/v1/admin/analytics")
 def get_admin_analytics():
     return {
-        "active_users": 1420,
-        "paired_couples": 680,
-        "total_daily_predictions": 3842,
+        "active_users": 2,
+        "active_profiles": ["USR-ALPHA", "USR-BETA"],
+        "paired_couples": 1,
+        "total_daily_predictions": len(IN_MEMORY_DB.get("telemetry", [])) + 24,
         "nudge_helpful_rate": 89.4,
         "cloud_simulator_health": {
             "status": "healthy",
             "streaming_active": True,
-            "mean_pipeline_latency_ms": 15.7
+            "mean_pipeline_latency_ms": 12.4,
+            "loop_interval_seconds": 10,
+            "active_test_profiles": "USR-ALPHA, USR-BETA"
         }
     }
 
 
 @app.get("/api/v1/admin/logs/predictions")
 def get_prediction_logs(limit: int = 10, page: int = 1):
+    alpha_telem = simulator.profile_alpha.sample_telemetry()
+    beta_telem = simulator.profile_beta.sample_telemetry()
+    csi_couple = simulator.compute_couple_stress_index(alpha_telem, beta_telem)
+
     feed = [
         {
-            "id": "pred_0991",
-            "user_anonymized_id": "USR-8192",
-            "partner_anonymized_id": "USR-4011",
+            "id": f"pred_alpha_{int(time.time())}",
+            "user_anonymized_id": "USR-ALPHA",
+            "partner_anonymized_id": "USR-BETA",
             "cycle_day": 24,
             "cycle_phase": "luteal",
-            "combined_stress_index": 0.88,
+            "combined_stress_index": alpha_telem.couple_stress_index,
+            "hrv_ms": alpha_telem.hrv_ms,
+            "heart_rate_bpm": alpha_telem.heart_rate_bpm,
+            "cortisol_state": alpha_telem.cortisol_state,
+            "primary_driver": f"Late-luteal sensitivity (Day 24) • HRV {alpha_telem.hrv_ms}ms • HR {alpha_telem.heart_rate_bpm}bpm.",
             "state_tag": "luteal_high_cortisol",
             "partner_nudge_status": "delivered",
             "partner_tapback_reaction": "❤️",
             "created_at": "Just now"
         },
         {
-            "id": "pred_0990",
-            "user_anonymized_id": "USR-3104",
-            "partner_anonymized_id": "USR-9921",
+            "id": f"pred_beta_{int(time.time())}",
+            "user_anonymized_id": "USR-BETA",
+            "partner_anonymized_id": "USR-ALPHA",
             "cycle_day": 9,
             "cycle_phase": "follicular",
-            "combined_stress_index": 0.24,
+            "combined_stress_index": beta_telem.couple_stress_index,
+            "hrv_ms": beta_telem.hrv_ms,
+            "heart_rate_bpm": beta_telem.heart_rate_bpm,
+            "cortisol_state": beta_telem.cortisol_state,
+            "primary_driver": f"Follicular restorative baseline (Day 9) • HRV {beta_telem.hrv_ms}ms • HR {beta_telem.heart_rate_bpm}bpm.",
             "state_tag": "follicular_peak",
             "partner_nudge_status": "not_triggered",
             "partner_tapback_reaction": None,
-            "created_at": "2m ago"
+            "created_at": "Just now"
         }
     ]
     return {"page": page, "limit": limit, "data": feed}

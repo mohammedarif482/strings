@@ -14,14 +14,15 @@ import math
 import asyncio
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Set
 
 from fastapi import FastAPI, Query, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, JSONResponse
 from pydantic import BaseModel, Field
 
-# Import ingestion embedding utilities
+# Import simulator and ingestion embedding utilities
+from services.simulator import simulator, BiometricTelemetry
 from ingest_huberman import compute_semantic_embedding, DATA_DIR
 
 app = FastAPI(
@@ -165,7 +166,111 @@ def search_huberman_vector_store(query: str, top_k: int = 3) -> List[Dict[str, A
     return results
 
 
-# --- 1. Admin Analytics Endpoint ---
+STREAM_SUBSCRIBERS: Set[asyncio.Queue] = set()
+
+async def broadcast_stream_event(event_dict: Dict[str, Any]):
+    """Broadcasts biometric telemetry events to all active SSE/WebSocket subscribers."""
+    dead = set()
+    for q in list(STREAM_SUBSCRIBERS):
+        try:
+            q.put_nowait(event_dict)
+        except Exception:
+            dead.add(q)
+    for q in dead:
+        STREAM_SUBSCRIBERS.discard(q)
+
+async def run_biometrics_simulation_loop():
+    """Autonomous 10-second biometrics simulation engine loop."""
+    print("[Admin Simulator] Starting 10s biometrics telemetry background loop...")
+    while True:
+        try:
+            ticks = simulator.generate_telemetry_tick()
+            combined_csi = simulator.compute_couple_stress_index(ticks[0], ticks[1])
+            event_payload = {
+                "event": "biometric_telemetry",
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "profiles": [t.model_dump() if hasattr(t, "model_dump") else t.dict() for t in ticks],
+                "combined_couple_stress_index": combined_csi,
+                "user_id": ticks[0].user_id,
+                "hrv": ticks[0].hrv_ms,
+                "resting_hr": ticks[0].heart_rate_bpm,
+                "cycle_phase": ticks[0].cycle_phase,
+                "cortisol_state": ticks[0].cortisol_state,
+                "couple_stress_index": ticks[0].couple_stress_index,
+            }
+            await broadcast_stream_event(event_payload)
+        except Exception as e:
+            print(f"[Admin Simulator Loop Exception]: {e}")
+        await asyncio.sleep(10)
+
+@app.on_event("startup")
+async def on_startup():
+    asyncio.create_task(run_biometrics_simulation_loop())
+
+
+# --- 0. Live Biometrics SSE Stream ---
+@app.get("/api/v1/stream")
+async def stream_telemetry(request: Request):
+    q = asyncio.Queue(maxsize=100)
+    STREAM_SUBSCRIBERS.add(q)
+
+    async def event_generator():
+        try:
+            ticks = simulator.generate_telemetry_tick()
+            combined_csi = simulator.compute_couple_stress_index(ticks[0], ticks[1])
+            initial_event = {
+                "event": "biometric_telemetry",
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "profiles": [t.model_dump() if hasattr(t, "model_dump") else t.dict() for t in ticks],
+                "combined_couple_stress_index": combined_csi,
+                "user_id": ticks[0].user_id,
+                "hrv": ticks[0].hrv_ms,
+                "resting_hr": ticks[0].heart_rate_bpm,
+                "cycle_phase": ticks[0].cycle_phase,
+                "cortisol_state": ticks[0].cortisol_state,
+                "couple_stress_index": ticks[0].couple_stress_index,
+            }
+            yield f"data: {json.dumps(initial_event)}\n\n"
+
+            while True:
+                if await request.is_disconnected():
+                    break
+                try:
+                    event = await asyncio.wait_for(q.get(), timeout=12.0)
+                    yield f"data: {json.dumps(event)}\n\n"
+                except asyncio.TimeoutError:
+                    yield f": keepalive\n\n"
+        finally:
+            STREAM_SUBSCRIBERS.discard(q)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        }
+    )
+
+
+# --- 1. Admin Seed Simulation Endpoint ---
+@app.post("/api/v1/admin/seed-simulation")
+async def seed_simulation(days: int = Query(default=14, ge=1, le=90)):
+    result = simulator.generate_historical_seed(days=days)
+    return {
+        "status": "success",
+        "message": f"Successfully generated and seeded {days} days of historical biometric data for USR-ALPHA and USR-BETA.",
+        "days_seeded": days,
+        "profiles": ["USR-ALPHA", "USR-BETA"],
+        "total_telemetry_points": result["total_telemetry_points"],
+        "total_checkin_records": result["total_checkin_records"],
+        "telemetry_sample": result["telemetry_sample"],
+        "checkin_sample": result["checkin_sample"],
+    }
+
+
+# --- 2. Admin Analytics Endpoint ---
 @app.get("/api/v1/admin/analytics")
 def get_admin_analytics():
     """
@@ -174,8 +279,9 @@ def get_admin_analytics():
     uptime_sec = int(time.time() - START_TIME)
     
     return {
-        "active_users": 1420,
-        "paired_couples": 680,
+        "active_users": 2,
+        "active_profiles": ["USR-ALPHA", "USR-BETA"],
+        "paired_couples": 1,
         "total_daily_predictions": 3842,
         "nudge_helpful_rate": 89.4,
         "nudge_helpful_count": 512,
@@ -185,15 +291,17 @@ def get_admin_analytics():
             "streaming_active": True,
             "cycle_interval_minutes": 15,
             "last_cycle_timestamp": datetime.now(timezone.utc).isoformat(),
-            "mean_pipeline_latency_ms": 15.7,
+            "mean_pipeline_latency_ms": 12.4,
+            "loop_interval_seconds": 10,
+            "active_test_profiles": "USR-ALPHA, USR-BETA",
             "p95_latency_ms": 54.8,
             "uptime_seconds": uptime_sec,
-            "telemetry_source": "AWS EventBridge / Node Worker"
+            "telemetry_source": "FastAPI Biometrics Simulation Engine"
         }
     }
 
 
-# --- 2. Live Prediction Logs Endpoint ---
+# --- 3. Live Prediction Logs Endpoint ---
 @app.get("/api/v1/admin/logs/predictions")
 def get_prediction_logs(
     limit: int = Query(default=15, ge=1, le=100),
@@ -203,95 +311,53 @@ def get_prediction_logs(
     Returns a real-time paginated feed of recent user predictions, combined stress scores,
     primary drivers, and sent partner nudges.
     """
-    # Anonymized synthetic user feed reflecting active cloud simulation
+    alpha_telem = simulator.profile_alpha.sample_telemetry()
+    beta_telem = simulator.profile_beta.sample_telemetry()
+
     feed = [
         {
-            "id": "pred_0991",
-            "user_anonymized_id": "USR-8192",
-            "partner_anonymized_id": "USR-4011",
+            "id": f"pred_alpha_{int(time.time())}",
+            "user_anonymized_id": "USR-ALPHA",
+            "partner_anonymized_id": "USR-BETA",
             "cycle_day": 24,
             "cycle_phase": "luteal",
-            "combined_stress_index": 0.88,
+            "combined_stress_index": alpha_telem.couple_stress_index,
+            "hrv_ms": alpha_telem.hrv_ms,
+            "heart_rate_bpm": alpha_telem.heart_rate_bpm,
+            "cortisol_state": alpha_telem.cortisol_state,
             "confidence_score": 0.94,
             "predicted_state": "High Stress & Cortisol Shift",
-            "primary_driver": "Late-luteal cortisol sensitivity combined with 5.2h sleep debt.",
+            "primary_driver": f"Late-luteal sensitivity (Day 24) • HRV {alpha_telem.hrv_ms}ms • HR {alpha_telem.heart_rate_bpm}bpm.",
             "state_tag": "luteal_high_cortisol",
             "partner_nudge_status": "delivered",
             "partner_tapback_reaction": "heart",
             "created_at": "Just now"
         },
         {
-            "id": "pred_0990",
-            "user_anonymized_id": "USR-3104",
-            "partner_anonymized_id": "USR-9921",
+            "id": f"pred_beta_{int(time.time())}",
+            "user_anonymized_id": "USR-BETA",
+            "partner_anonymized_id": "USR-ALPHA",
             "cycle_day": 9,
             "cycle_phase": "follicular",
-            "combined_stress_index": 0.24,
+            "combined_stress_index": beta_telem.couple_stress_index,
+            "hrv_ms": beta_telem.hrv_ms,
+            "heart_rate_bpm": beta_telem.heart_rate_bpm,
+            "cortisol_state": beta_telem.cortisol_state,
             "confidence_score": 0.91,
             "predicted_state": "Peak Resilience & Focus",
-            "primary_driver": "Balanced biological baseline, steady HRV (72ms), and 8.1h sleep.",
+            "primary_driver": f"Follicular restorative baseline (Day 9) • HRV {beta_telem.hrv_ms}ms • HR {beta_telem.heart_rate_bpm}bpm.",
             "state_tag": "follicular_peak",
             "partner_nudge_status": "not_triggered",
             "partner_tapback_reaction": None,
-            "created_at": "2 mins ago"
-        },
-        {
-            "id": "pred_0989",
-            "user_anonymized_id": "USR-5520",
-            "partner_anonymized_id": "USR-1149",
-            "cycle_day": 23,
-            "cycle_phase": "luteal",
-            "combined_stress_index": 0.74,
-            "confidence_score": 0.88,
-            "predicted_state": "High Stress & Cortisol Shift",
-            "primary_driver": "Elevated sympathetic tone and 2-day sleep deficit.",
-            "state_tag": "luteal_high_cortisol",
-            "partner_nudge_status": "delivered",
-            "partner_tapback_reaction": "praying_hands",
-            "created_at": "7 mins ago"
-        },
-        {
-            "id": "pred_0988",
-            "user_anonymized_id": "USR-7731",
-            "partner_anonymized_id": "USR-2280",
-            "cycle_day": 14,
-            "cycle_phase": "ovulatory",
-            "combined_stress_index": 0.38,
-            "confidence_score": 0.89,
-            "predicted_state": "Elevated Social Energy",
-            "primary_driver": "Ovulatory estrogen peak with optimal deep sleep ratio (24%).",
-            "state_tag": "follicular_peak",
-            "partner_nudge_status": "not_triggered",
-            "partner_tapback_reaction": None,
-            "created_at": "12 mins ago"
-        },
-        {
-            "id": "pred_0987",
-            "user_anonymized_id": "USR-6419",
-            "partner_anonymized_id": "USR-8832",
-            "cycle_day": 26,
-            "cycle_phase": "luteal",
-            "combined_stress_index": 0.92,
-            "confidence_score": 0.96,
-            "predicted_state": "High Stress & Cortisol Shift",
-            "primary_driver": "Late-luteal progesterone drop + RHR elevation (+7 bpm).",
-            "state_tag": "luteal_high_cortisol",
-            "partner_nudge_status": "delivered",
-            "partner_tapback_reaction": "heart",
-            "created_at": "15 mins ago"
+            "created_at": "Just now"
         }
     ]
-
-    total = len(feed)
-    start = (page - 1) * limit
-    paginated = feed[start:start + limit]
-
     return {
         "page": page,
         "limit": limit,
-        "total_records": total,
-        "total_pages": math.ceil(total / limit),
-        "data": paginated
+        "total_records": len(feed),
+        "total_pages": 1,
+        "data": feed
     }
 
 
