@@ -65,8 +65,8 @@ IN_MEMORY_DB = {
     "users": [
         {"id": "usr_alex", "email": "alex@aivo.health", "partner_id": "usr_sarah", "cycle_start_date": "2026-08-20", "average_cycle_length": 28},
         {"id": "usr_sarah", "email": "sarah@aivo.health", "partner_id": "usr_alex", "cycle_start_date": "2026-08-15", "average_cycle_length": 28},
-        {"id": "USR-ALPHA", "email": "alpha@aivo.health", "partner_id": "USR-BETA", "cycle_start_date": "2026-08-17", "average_cycle_length": 28},
-        {"id": "USR-BETA", "email": "beta@aivo.health", "partner_id": "USR-ALPHA", "cycle_start_date": "2026-09-01", "average_cycle_length": 28}
+        {"id": "arif_female", "email": "arif@aivo.health", "name": "Arif", "gender": "female", "partner_id": "arya_male", "cycle_start_date": "2026-08-17", "average_cycle_length": 28},
+        {"id": "arya_male", "email": "arya@aivo.health", "name": "Arya", "gender": "male", "partner_id": "arif_female", "cycle_start_date": None, "average_cycle_length": None}
     ],
     "checkins": [],
     "nudges": [],
@@ -129,28 +129,38 @@ async def broadcast_stream_event(event_dict: Dict[str, Any]):
 
 
 async def run_biometrics_simulation_loop():
-    """Autonomous 10-second biometrics simulation engine loop."""
-    print("[Simulator] Initializing 10-second biometrics telemetry background loop...")
+    """Autonomous 10-second biometrics simulation engine loop with dual-schema output."""
+    print("[Simulator] Initializing 10-second biometrics telemetry background loop (Arif & Arya)...")
     while True:
         try:
             ticks = simulator.generate_telemetry_tick()
-            combined_csi = simulator.compute_couple_stress_index(ticks[0], ticks[1])
+            arif_tick = next((t for t in ticks if t.user_id == "arif_female"), ticks[0])
+            arya_tick = next((t for t in ticks if t.user_id == "arya_male"), ticks[1] if len(ticks) > 1 else ticks[0])
+            combined_csi = simulator.compute_couple_stress_index(arif_tick, arya_tick)
 
             # 1. Persist to DB / in-memory
             await persist_telemetry_records(ticks)
 
-            # 2. Emit telemetry event
+            # 2. Emit dual-schema telemetry event (compatible with Next.js Admin & Flutter mobile)
             event_payload = {
                 "event": "biometric_telemetry",
+                "type": "VITALS_TICK",
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "profiles": [t.to_dict() if hasattr(t, "to_dict") else t.dict() for t in ticks],
+                "user_id": "arif_female",
+                "payload": {
+                    "vitals": {
+                        "hrv": float(arif_tick.hrv_ms),
+                        "restingHR": int(arif_tick.heart_rate_bpm),
+                        "deepSleepRatio": 0.22
+                    }
+                },
+                "hrv": arif_tick.hrv_ms,
+                "resting_hr": arif_tick.heart_rate_bpm,
+                "cycle_phase": arif_tick.cycle_phase,
+                "cortisol_state": arif_tick.cortisol_state,
+                "couple_stress_index": combined_csi,
                 "combined_couple_stress_index": combined_csi,
-                "user_id": ticks[0].user_id,
-                "hrv": ticks[0].hrv_ms,
-                "resting_hr": ticks[0].heart_rate_bpm,
-                "cycle_phase": ticks[0].cycle_phase,
-                "cortisol_state": ticks[0].cortisol_state,
-                "couple_stress_index": ticks[0].couple_stress_index,
             }
             await broadcast_stream_event(event_payload)
         except Exception as e:
@@ -337,18 +347,29 @@ async def stream_telemetry(request: Request):
         try:
             # Yield initial snapshot immediately so client gets data on connect
             ticks = simulator.generate_telemetry_tick()
-            combined_csi = simulator.compute_couple_stress_index(ticks[0], ticks[1])
+            arif_tick = next((t for t in ticks if t.user_id == "arif_female"), ticks[0])
+            arya_tick = next((t for t in ticks if t.user_id == "arya_male"), ticks[1] if len(ticks) > 1 else ticks[0])
+            combined_csi = simulator.compute_couple_stress_index(arif_tick, arya_tick)
+
             initial_event = {
                 "event": "biometric_telemetry",
+                "type": "VITALS_TICK",
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "profiles": [t.to_dict() if hasattr(t, "to_dict") else t.dict() for t in ticks],
+                "user_id": "arif_female",
+                "payload": {
+                    "vitals": {
+                        "hrv": float(arif_tick.hrv_ms),
+                        "restingHR": int(arif_tick.heart_rate_bpm),
+                        "deepSleepRatio": 0.22
+                    }
+                },
+                "hrv": arif_tick.hrv_ms,
+                "resting_hr": arif_tick.heart_rate_bpm,
+                "cycle_phase": arif_tick.cycle_phase,
+                "cortisol_state": arif_tick.cortisol_state,
+                "couple_stress_index": combined_csi,
                 "combined_couple_stress_index": combined_csi,
-                "user_id": ticks[0].user_id,
-                "hrv": ticks[0].hrv_ms,
-                "resting_hr": ticks[0].heart_rate_bpm,
-                "cycle_phase": ticks[0].cycle_phase,
-                "cortisol_state": ticks[0].cortisol_state,
-                "couple_stress_index": ticks[0].couple_stress_index,
             }
             yield f"data: {json.dumps(initial_event, default=str)}\n\n"
 
@@ -381,20 +402,34 @@ async def websocket_stream_telemetry(websocket: WebSocket):
     STREAM_SUBSCRIBERS.add(q)
     try:
         ticks = simulator.generate_telemetry_tick()
-        combined_csi = simulator.compute_couple_stress_index(ticks[0], ticks[1])
+        arif_tick = next((t for t in ticks if t.user_id == "arif_female"), ticks[0])
+        arya_tick = next((t for t in ticks if t.user_id == "arya_male"), ticks[1] if len(ticks) > 1 else ticks[0])
+        combined_csi = simulator.compute_couple_stress_index(arif_tick, arya_tick)
+
         initial_event = {
             "event": "biometric_telemetry",
+            "type": "VITALS_TICK",
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "profiles": [t.to_dict() if hasattr(t, "to_dict") else t.dict() for t in ticks],
+            "user_id": "arif_female",
+            "payload": {
+                "vitals": {
+                    "hrv": float(arif_tick.hrv_ms),
+                    "restingHR": int(arif_tick.heart_rate_bpm),
+                    "deepSleepRatio": 0.22
+                }
+            },
+            "hrv": arif_tick.hrv_ms,
+            "resting_hr": arif_tick.heart_rate_bpm,
+            "cycle_phase": arif_tick.cycle_phase,
+            "cortisol_state": arif_tick.cortisol_state,
+            "couple_stress_index": combined_csi,
             "combined_couple_stress_index": combined_csi,
-            "user_id": ticks[0].user_id,
-            "hrv": ticks[0].hrv_ms,
-            "resting_hr": ticks[0].heart_rate_bpm,
         }
         await websocket.send_text(json.dumps(initial_event, default=str))
         while True:
             event = await q.get()
-            await websocket.send_json(event)
+            await websocket.send_text(json.dumps(event, default=str))
     except (WebSocketDisconnect, Exception):
         pass
     finally:
@@ -404,7 +439,7 @@ async def websocket_stream_telemetry(websocket: WebSocket):
 # --- Admin Seed & Analytics Endpoints ---
 @app.post("/api/v1/admin/seed-simulation")
 async def seed_simulation(days: int = Query(default=14, ge=1, le=90)):
-    """Generates 14 days of backdated historical HRV/biometric data for both test users."""
+    """Generates 14 days of backdated historical HRV/biometric data for Arif (female) and Arya (male)."""
     result = simulator.generate_historical_seed(days=days)
     records = result.get("records", {})
     
@@ -440,7 +475,7 @@ async def seed_simulation(days: int = Query(default=14, ge=1, le=90)):
                     await conn.execute("""
                         INSERT INTO telemetry (user_id, timestamp, hrv_ms, heart_rate_bpm, cycle_phase, cortisol_state, couple_stress_index)
                         VALUES ($1, $2, $3, $4, $5, $6, $7)
-                    """, t["user_id"], ts, t["hrv_ms"], t["heart_rate_bpm"], t["cycle_phase"], t["cortisol_state"], t["couple_stress_index"])
+                    """, t["user_id"], ts, t["hrv_ms"], t["heart_rate_bpm"], t.get("cycle_phase"), t["cortisol_state"], t["couple_stress_index"])
             finally:
                 await conn.close()
         except Exception:
@@ -448,9 +483,10 @@ async def seed_simulation(days: int = Query(default=14, ge=1, le=90)):
 
     return {
         "status": "success",
-        "message": f"Successfully generated and seeded {days} days of historical biometric data for USR-ALPHA and USR-BETA.",
+        "message": f"Successfully generated and seeded {days} days of historical biometric data for Arif (female) and Arya (male).",
         "days_seeded": days,
-        "profiles": ["USR-ALPHA", "USR-BETA"],
+        "profiles": ["arif_female", "arya_male"],
+        "display_names": ["Arif", "Arya"],
         "total_telemetry_points": result["total_telemetry_points"],
         "total_checkin_records": result["total_checkin_records"],
         "telemetry_sample": result["telemetry_sample"],
@@ -462,55 +498,62 @@ async def seed_simulation(days: int = Query(default=14, ge=1, le=90)):
 def get_admin_analytics():
     return {
         "active_users": 2,
-        "active_profiles": ["USR-ALPHA", "USR-BETA"],
+        "active_profiles": ["arif_female", "arya_male", "Arif", "Arya"],
         "paired_couples": 1,
         "total_daily_predictions": len(IN_MEMORY_DB.get("telemetry", [])) + 24,
         "nudge_helpful_rate": 89.4,
         "cloud_simulator_health": {
             "status": "healthy",
+            "display_status": "Healthy (Live Stream)",
             "streaming_active": True,
             "mean_pipeline_latency_ms": 12.4,
             "loop_interval_seconds": 10,
-            "active_test_profiles": "USR-ALPHA, USR-BETA"
+            "active_test_profiles": "Arya, Arif"
         }
     }
 
 
 @app.get("/api/v1/admin/logs/predictions")
 def get_prediction_logs(limit: int = 10, page: int = 1):
-    alpha_telem = simulator.profile_alpha.sample_telemetry()
-    beta_telem = simulator.profile_beta.sample_telemetry()
-    csi_couple = simulator.compute_couple_stress_index(alpha_telem, beta_telem)
+    arif_telem = simulator.profile_arif.sample_telemetry()
+    arya_telem = simulator.profile_arya.sample_telemetry()
+    csi_couple = simulator.compute_couple_stress_index(arif_telem, arya_telem)
 
     feed = [
         {
-            "id": f"pred_alpha_{int(time.time())}",
-            "user_anonymized_id": "USR-ALPHA",
-            "partner_anonymized_id": "USR-BETA",
+            "id": f"pred_arif_{int(time.time())}",
+            "user_anonymized_id": "Arif",
+            "partner_anonymized_id": "Arya",
+            "gender": "female",
             "cycle_day": 24,
-            "cycle_phase": "luteal",
-            "combined_stress_index": alpha_telem.couple_stress_index,
-            "hrv_ms": alpha_telem.hrv_ms,
-            "heart_rate_bpm": alpha_telem.heart_rate_bpm,
-            "cortisol_state": alpha_telem.cortisol_state,
-            "primary_driver": f"Late-luteal sensitivity (Day 24) • HRV {alpha_telem.hrv_ms}ms • HR {alpha_telem.heart_rate_bpm}bpm.",
+            "cycle_phase": "Luteal",
+            "combined_stress_index": arif_telem.couple_stress_index,
+            "hrv_ms": arif_telem.hrv_ms,
+            "heart_rate_bpm": arif_telem.heart_rate_bpm,
+            "cortisol_state": arif_telem.cortisol_state,
+            "confidence_score": 0.94,
+            "predicted_state": "High Stress & Cortisol Shift",
+            "primary_driver": f"Late-luteal sensitivity (Day 24) • HRV {arif_telem.hrv_ms}ms • HR {arif_telem.heart_rate_bpm}bpm • Cortisol {arif_telem.cortisol_state}.",
             "state_tag": "luteal_high_cortisol",
             "partner_nudge_status": "delivered",
             "partner_tapback_reaction": "❤️",
             "created_at": "Just now"
         },
         {
-            "id": f"pred_beta_{int(time.time())}",
-            "user_anonymized_id": "USR-BETA",
-            "partner_anonymized_id": "USR-ALPHA",
-            "cycle_day": 9,
-            "cycle_phase": "follicular",
-            "combined_stress_index": beta_telem.couple_stress_index,
-            "hrv_ms": beta_telem.hrv_ms,
-            "heart_rate_bpm": beta_telem.heart_rate_bpm,
-            "cortisol_state": beta_telem.cortisol_state,
-            "primary_driver": f"Follicular restorative baseline (Day 9) • HRV {beta_telem.hrv_ms}ms • HR {beta_telem.heart_rate_bpm}bpm.",
-            "state_tag": "follicular_peak",
+            "id": f"pred_arya_{int(time.time())}",
+            "user_anonymized_id": "Arya",
+            "partner_anonymized_id": "Arif",
+            "gender": "male",
+            "cycle_day": None,
+            "cycle_phase": "Circadian Recovery",
+            "combined_stress_index": arya_telem.couple_stress_index,
+            "hrv_ms": arya_telem.hrv_ms,
+            "heart_rate_bpm": arya_telem.heart_rate_bpm,
+            "cortisol_state": arya_telem.cortisol_state,
+            "confidence_score": 0.91,
+            "predicted_state": "Restorative Autonomic Baseline",
+            "primary_driver": f"Diurnal circadian recovery • HRV {arya_telem.hrv_ms}ms • HR {arya_telem.heart_rate_bpm}bpm • Cortisol {arya_telem.cortisol_state}.",
+            "state_tag": "circadian_optimal",
             "partner_nudge_status": "not_triggered",
             "partner_tapback_reaction": None,
             "created_at": "Just now"

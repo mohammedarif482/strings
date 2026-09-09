@@ -19,93 +19,50 @@ const API_BASE = getApiBase();
 export default function AdminDashboard({ onBackToSimulator }) {
   // --- State ---
   const [analytics, setAnalytics] = useState({
-    active_users: 1420,
-    paired_couples: 680,
-    total_daily_predictions: 3842,
+    active_users: 2,
+    paired_couples: 1,
+    total_daily_predictions: 48,
     nudge_helpful_rate: 89.4,
     cloud_simulator_health: {
-      status: 'healthy',
+      status: 'Healthy (Live Stream)',
       streaming_active: true,
-      mean_pipeline_latency_ms: 15.7,
+      mean_pipeline_latency_ms: 12.4,
       cycle_interval_minutes: 15
     }
   });
 
   const [predictions, setPredictions] = useState([
     {
-      id: 'pred_0991',
-      user_anonymized_id: 'USR-8192',
-      partner_anonymized_id: 'USR-4011',
+      id: 'pred_arif_init',
+      user_anonymized_id: 'Arif',
+      partner_anonymized_id: 'Arya',
+      gender: 'female',
       cycle_day: 24,
-      cycle_phase: 'luteal',
-      combined_stress_index: 0.88,
+      cycle_phase: 'Luteal',
+      combined_stress_index: 0.82,
       confidence_score: 0.94,
       predicted_state: 'High Stress & Cortisol Shift',
-      primary_driver: 'Late-luteal cortisol sensitivity + 5.2h sleep debt.',
+      primary_driver: 'Late-luteal sensitivity (Day 24) • HRV 42ms • HR 86bpm • Cortisol High.',
       state_tag: 'luteal_high_cortisol',
       partner_nudge_status: 'delivered',
       partner_tapback_reaction: '❤️',
       created_at: 'Just now'
     },
     {
-      id: 'pred_0990',
-      user_anonymized_id: 'USR-3104',
-      partner_anonymized_id: 'USR-9921',
-      cycle_day: 9,
-      cycle_phase: 'follicular',
+      id: 'pred_arya_init',
+      user_anonymized_id: 'Arya',
+      partner_anonymized_id: 'Arif',
+      gender: 'male',
+      cycle_day: null,
+      cycle_phase: 'Circadian Recovery',
       combined_stress_index: 0.24,
       confidence_score: 0.91,
-      predicted_state: 'Peak Resilience & Focus',
-      primary_driver: 'Balanced baseline, steady HRV (72ms), 8.1h sleep.',
-      state_tag: 'follicular_peak',
+      predicted_state: 'Restorative Autonomic Baseline',
+      primary_driver: 'Diurnal circadian recovery • HRV 75ms • HR 63bpm • Cortisol Normal.',
+      state_tag: 'circadian_optimal',
       partner_nudge_status: 'not_triggered',
       partner_tapback_reaction: null,
-      created_at: '2m ago'
-    },
-    {
-      id: 'pred_0989',
-      user_anonymized_id: 'USR-5520',
-      partner_anonymized_id: 'USR-1149',
-      cycle_day: 23,
-      cycle_phase: 'luteal',
-      combined_stress_index: 0.74,
-      confidence_score: 0.88,
-      predicted_state: 'High Stress & Cortisol Shift',
-      primary_driver: 'Elevated sympathetic tone and 2-day sleep deficit.',
-      state_tag: 'luteal_high_cortisol',
-      partner_nudge_status: 'delivered',
-      partner_tapback_reaction: '🙏',
-      created_at: '7m ago'
-    },
-    {
-      id: 'pred_0988',
-      user_anonymized_id: 'USR-7731',
-      partner_anonymized_id: 'USR-2280',
-      cycle_day: 14,
-      cycle_phase: 'ovulatory',
-      combined_stress_index: 0.38,
-      confidence_score: 0.89,
-      predicted_state: 'Elevated Social Energy',
-      primary_driver: 'Ovulatory estrogen peak with deep sleep ratio (24%).',
-      state_tag: 'follicular_peak',
-      partner_nudge_status: 'not_triggered',
-      partner_tapback_reaction: null,
-      created_at: '12m ago'
-    },
-    {
-      id: 'pred_0987',
-      user_anonymized_id: 'USR-6419',
-      partner_anonymized_id: 'USR-8832',
-      cycle_day: 26,
-      cycle_phase: 'luteal',
-      combined_stress_index: 0.92,
-      confidence_score: 0.96,
-      predicted_state: 'High Stress & Cortisol Shift',
-      primary_driver: 'Late-luteal progesterone drop + RHR elevation (+7 bpm).',
-      state_tag: 'luteal_high_cortisol',
-      partner_nudge_status: 'delivered',
-      partner_tapback_reaction: '❤️',
-      created_at: '15m ago'
+      created_at: 'Just now'
     }
   ]);
 
@@ -149,29 +106,31 @@ export default function AdminDashboard({ onBackToSimulator }) {
           const payload = JSON.parse(e.data);
           if (payload.profiles && Array.isArray(payload.profiles)) {
             const livePreds = payload.profiles.map((prof) => {
-              const isAlpha = prof.user_id === 'USR-ALPHA';
-              const partnerId = isAlpha ? 'USR-BETA' : 'USR-ALPHA';
-              const csi = prof.couple_stress_index ?? (isAlpha ? 0.82 : 0.24);
-              const isLuteal = prof.cycle_phase.toLowerCase().includes('luteal');
+              const isArif = prof.user_id === 'arif_female' || prof.user_id === 'USR-ALPHA' || prof.display_name === 'Arif';
+              const displayName = prof.display_name || (isArif ? 'Arif' : 'Arya');
+              const partnerName = isArif ? 'Arya' : 'Arif';
+              const csi = prof.couple_stress_index ?? (isArif ? 0.82 : 0.24);
+              const isLuteal = prof.cycle_phase ? prof.cycle_phase.toLowerCase().includes('luteal') : isArif;
 
               return {
                 id: `live_${prof.user_id}_${Date.now()}`,
-                user_anonymized_id: prof.user_id,
-                partner_anonymized_id: partnerId,
-                cycle_day: isAlpha ? 24 : 9,
-                cycle_phase: isLuteal ? 'luteal' : 'follicular',
+                user_anonymized_id: displayName,
+                partner_anonymized_id: partnerName,
+                gender: prof.gender || (isArif ? 'female' : 'male'),
+                cycle_day: isArif ? 24 : null,
+                cycle_phase: prof.cycle_phase || (isArif ? 'Luteal Day 24' : 'Circadian Recovery'),
                 combined_stress_index: csi,
                 hrv_ms: prof.hrv_ms,
                 heart_rate_bpm: prof.heart_rate_bpm,
                 cortisol_state: prof.cortisol_state,
                 confidence_score: 0.94,
-                predicted_state: isAlpha ? 'High Stress & Cortisol Shift' : 'Restorative Baseline',
-                primary_driver: isAlpha
+                predicted_state: isArif ? 'High Stress & Cortisol Shift' : 'Restorative Autonomic Baseline',
+                primary_driver: isArif
                   ? `Late-luteal sensitivity (Day 24) • HRV ${prof.hrv_ms}ms • HR ${prof.heart_rate_bpm}bpm • Cortisol ${prof.cortisol_state}.`
-                  : `Follicular restorative baseline (Day 9) • HRV ${prof.hrv_ms}ms • HR ${prof.heart_rate_bpm}bpm • Cortisol ${prof.cortisol_state}.`,
-                state_tag: isAlpha ? 'luteal_high_cortisol' : 'follicular_peak',
-                partner_nudge_status: isAlpha ? 'delivered' : 'not_triggered',
-                partner_tapback_reaction: isAlpha ? '❤️' : null,
+                  : `Diurnal circadian recovery • HRV ${prof.hrv_ms}ms • HR ${prof.heart_rate_bpm}bpm • Cortisol ${prof.cortisol_state}.`,
+                state_tag: isArif ? 'luteal_high_cortisol' : 'circadian_optimal',
+                partner_nudge_status: isArif ? 'delivered' : 'not_triggered',
+                partner_tapback_reaction: isArif ? '❤️' : null,
                 created_at: 'Live Stream'
               };
             });
@@ -418,7 +377,7 @@ export default function AdminDashboard({ onBackToSimulator }) {
               </div>
               <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[11px] font-mono">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                <span>2 Active Test Profiles (USR-ALPHA, USR-BETA)</span>
+                <span>2 Active Test Profiles (Arya, Arif)</span>
               </div>
             </div>
 
@@ -465,9 +424,11 @@ export default function AdminDashboard({ onBackToSimulator }) {
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-1.5">
                         <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md uppercase tracking-wider ${
-                          p.cycle_phase === 'luteal' ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30' : 'bg-blue-500/20 text-blue-300 border border-blue-500/30'
+                          p.gender === 'female' || (p.cycle_phase && p.cycle_phase.toLowerCase().includes('luteal'))
+                            ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30'
+                            : 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30'
                         }`}>
-                          Day {p.cycle_day} • {p.cycle_phase}
+                          {p.cycle_phase || (p.cycle_day ? `Day ${p.cycle_day}` : 'Circadian Recovery')}
                         </span>
                         <span className="text-[10px] text-slate-400 font-medium truncate max-w-[120px]">
                           {p.state_tag}
