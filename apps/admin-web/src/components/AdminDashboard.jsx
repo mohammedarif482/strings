@@ -17,6 +17,35 @@ const getApiBase = () => {
 const API_BASE = getApiBase();
 
 export default function AdminDashboard({ onBackToSimulator }) {
+  // --- Dedicated Live Telemetry State for Arya & Arif ---
+  const [dyadicCSI, setDyadicCSI] = useState(0.58);
+  const [lastTickTime, setLastTickTime] = useState('10s loop');
+  const [isLiveConnected, setIsLiveConnected] = useState(false);
+
+  const [liveArif, setLiveArif] = useState({
+    user_id: 'arif_female',
+    display_name: 'Arif',
+    gender: 'female',
+    hrv_ms: 42,
+    heart_rate_bpm: 85,
+    cycle_phase: 'Luteal Day 24',
+    cycle_day: 24,
+    cortisol_state: 'High',
+    couple_stress_index: 0.82
+  });
+
+  const [liveArya, setLiveArya] = useState({
+    user_id: 'arya_male',
+    display_name: 'Arya',
+    gender: 'male',
+    hrv_ms: 75,
+    heart_rate_bpm: 63,
+    cycle_phase: null,
+    circadian_status: 'Circadian Recovery',
+    cortisol_state: 'Normal',
+    couple_stress_index: 0.22
+  });
+
   // --- State ---
   const [analytics, setAnalytics] = useState({
     active_users: 2,
@@ -101,16 +130,54 @@ export default function AdminDashboard({ onBackToSimulator }) {
     let eventSource = null;
     try {
       eventSource = new EventSource(`${API_BASE}/api/v1/stream`);
+      
+      eventSource.onopen = () => {
+        setIsLiveConnected(true);
+      };
+
       eventSource.onmessage = (e) => {
         try {
           const payload = JSON.parse(e.data);
+          
+          // 1. Recalculate and update Dyadic Couple Stress Index dynamically
+          if (payload.combined_couple_stress_index !== undefined) {
+            setDyadicCSI(payload.combined_couple_stress_index);
+            setLastTickTime(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+          }
+
+          // 2. Extract and bind live telemetry metrics for Arya and Arif
           if (payload.profiles && Array.isArray(payload.profiles)) {
+            const arifProf = payload.profiles.find(p => p.user_id === 'arif_female' || p.display_name === 'Arif' || p.user_id === 'USR-ALPHA');
+            const aryaProf = payload.profiles.find(p => p.user_id === 'arya_male' || p.display_name === 'Arya' || p.user_id === 'USR-BETA');
+
+            if (arifProf) {
+              setLiveArif(prev => ({
+                ...prev,
+                hrv_ms: arifProf.hrv_ms,
+                heart_rate_bpm: arifProf.heart_rate_bpm,
+                cycle_phase: arifProf.cycle_phase || 'Luteal Day 24',
+                cortisol_state: arifProf.cortisol_state || 'High',
+                couple_stress_index: arifProf.couple_stress_index
+              }));
+            }
+
+            if (aryaProf) {
+              setLiveArya(prev => ({
+                ...prev,
+                hrv_ms: aryaProf.hrv_ms,
+                heart_rate_bpm: aryaProf.heart_rate_bpm,
+                cycle_phase: null,
+                circadian_status: 'Circadian Recovery',
+                cortisol_state: aryaProf.cortisol_state || 'Normal',
+                couple_stress_index: aryaProf.couple_stress_index
+              }));
+            }
+
             const livePreds = payload.profiles.map((prof) => {
               const isArif = prof.user_id === 'arif_female' || prof.user_id === 'USR-ALPHA' || prof.display_name === 'Arif';
               const displayName = prof.display_name || (isArif ? 'Arif' : 'Arya');
               const partnerName = isArif ? 'Arya' : 'Arif';
               const csi = prof.couple_stress_index ?? (isArif ? 0.82 : 0.24);
-              const isLuteal = prof.cycle_phase ? prof.cycle_phase.toLowerCase().includes('luteal') : isArif;
 
               return {
                 id: `live_${prof.user_id}_${Date.now()}`,
@@ -118,7 +185,7 @@ export default function AdminDashboard({ onBackToSimulator }) {
                 partner_anonymized_id: partnerName,
                 gender: prof.gender || (isArif ? 'female' : 'male'),
                 cycle_day: isArif ? 24 : null,
-                cycle_phase: prof.cycle_phase || (isArif ? 'Luteal Day 24' : 'Circadian Recovery'),
+                cycle_phase: isArif ? (prof.cycle_phase || 'Luteal Day 24') : 'Circadian Recovery',
                 combined_stress_index: csi,
                 hrv_ms: prof.hrv_ms,
                 heart_rate_bpm: prof.heart_rate_bpm,
@@ -135,13 +202,19 @@ export default function AdminDashboard({ onBackToSimulator }) {
               };
             });
             setPredictions(livePreds);
+            setIsLiveConnected(true);
           }
         } catch {
           // ignore keepalive
         }
       };
+
+      eventSource.onerror = () => {
+        setIsLiveConnected(false);
+      };
     } catch (err) {
       console.warn('SSE stream error:', err);
+      setIsLiveConnected(false);
     }
 
     const interval = setInterval(fetchLiveData, 10000);
@@ -263,20 +336,17 @@ export default function AdminDashboard({ onBackToSimulator }) {
         </div>
 
         <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-mono">
+            <span className={`w-2 h-2 rounded-full ${isLiveConnected ? 'bg-emerald-400 animate-ping' : 'bg-amber-400'}`} />
+            <span>2 Active Test Profiles (Arya, Arif)</span>
+          </div>
+
           <button 
             onClick={fetchLiveData}
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-slate-300 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg transition-colors"
           >
             <RefreshCw className="w-3.5 h-3.5" />
             <span>Sync Live</span>
-          </button>
-
-          <button 
-            onClick={onBackToSimulator}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-gradient-to-r from-[#FF6B2C] to-[#FF8A3D] hover:opacity-90 rounded-lg shadow-md shadow-[#FF6B2C]/20 transition-all"
-          >
-            <span>Switch to App Simulator</span>
-            <ArrowUpRight className="w-3.5 h-3.5" />
           </button>
         </div>
       </header>
@@ -297,11 +367,10 @@ export default function AdminDashboard({ onBackToSimulator }) {
             </div>
             <div className="mt-3">
               <div className="text-2xl font-bold tracking-tight text-white">
-                {analytics.active_users.toLocaleString()}
+                2
               </div>
               <div className="flex items-center gap-1 mt-1 text-[11px] text-emerald-400">
-                <span>↗ +8.2%</span>
-                <span className="text-slate-500">simulated telemetry</span>
+                <span>Arya (male) & Arif (female)</span>
               </div>
             </div>
           </div>
@@ -316,28 +385,28 @@ export default function AdminDashboard({ onBackToSimulator }) {
             </div>
             <div className="mt-3">
               <div className="text-2xl font-bold tracking-tight text-white">
-                {analytics.paired_couples.toLocaleString()}
+                1
               </div>
               <div className="flex items-center gap-1 mt-1 text-[11px] text-slate-400">
-                <span>680 / 710 target links active</span>
+                <span>Arya ↔ Arif Active Dyad</span>
               </div>
             </div>
           </div>
 
-          {/* AI Nudge Accuracy */}
+          {/* Live Dyadic Stress (CSI) */}
           <div className="bg-[#121015]/90 border border-white/10 rounded-2xl p-4 flex flex-col justify-between shadow-xl relative overflow-hidden group hover:border-[#FF6B2C]/40 transition-all">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-medium text-slate-400">Nudge Helpful Rate</span>
-              <div className="p-2 rounded-xl bg-emerald-500/10 text-emerald-400">
-                <ShieldCheck className="w-4 h-4" />
+              <span className="text-xs font-medium text-slate-400">Live Dyadic Stress (CSI)</span>
+              <div className="p-2 rounded-xl bg-amber-500/10 text-amber-400">
+                <Activity className="w-4 h-4" />
               </div>
             </div>
             <div className="mt-3">
-              <div className="text-2xl font-bold tracking-tight text-white">
-                {analytics.nudge_helpful_rate}%
+              <div className="text-2xl font-bold tracking-tight text-white font-mono">
+                CSI {(dyadicCSI * 100).toFixed(0)}%
               </div>
-              <div className="flex items-center gap-1 mt-1 text-[11px] text-emerald-400">
-                <span>512 positive / 573 total feedback</span>
+              <div className="flex items-center gap-1 mt-1 text-[11px] text-amber-400 font-mono">
+                <span>0.60×Arif + 0.40×Arya</span>
               </div>
             </div>
           </div>
@@ -345,7 +414,7 @@ export default function AdminDashboard({ onBackToSimulator }) {
           {/* Cloud Streaming Health */}
           <div className="bg-[#121015]/90 border border-white/10 rounded-2xl p-4 flex flex-col justify-between shadow-xl relative overflow-hidden group hover:border-[#FF6B2C]/40 transition-all">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-medium text-slate-400">Cloud Simulator Engine</span>
+              <span className="text-xs font-medium text-slate-400">Simulator Engine</span>
               <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 text-[10px] font-semibold border border-emerald-500/30">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping"></span>
                 <span>STREAMING</span>
@@ -353,13 +422,193 @@ export default function AdminDashboard({ onBackToSimulator }) {
             </div>
             <div className="mt-3">
               <div className="text-2xl font-bold tracking-tight text-white flex items-center gap-2">
-                <span>{analytics.cloud_simulator_health.mean_pipeline_latency_ms} ms</span>
-                <span className="text-xs font-normal text-slate-400">p95</span>
+                <span>Healthy (Live Stream)</span>
               </div>
               <div className="flex items-center gap-1 mt-1 text-[11px] text-slate-400">
                 <Clock className="w-3 h-3 text-slate-500" />
-                <span>15-min autonomous cron loop</span>
+                <span>10s autonomous loop</span>
               </div>
+            </div>
+          </div>
+
+        </section>
+
+        {/* 2. PROMINENT DYADIC COUPLE STRESS HERO GAUGE */}
+        <section className="bg-gradient-to-br from-[#16121C] via-[#121015] to-[#1A1422] border border-white/10 rounded-3xl p-6 shadow-2xl relative overflow-hidden">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-white/10">
+            <div>
+              <div className="flex items-center gap-2.5">
+                <span className="px-2.5 py-0.5 rounded-full bg-[#FF6B2C]/20 border border-[#FF6B2C]/30 text-[#FF8A3D] text-[11px] font-bold uppercase tracking-wider">
+                  Real-Time Dyadic Synchrony
+                </span>
+                <span className="flex items-center gap-1 text-emerald-400 text-xs font-mono">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+                  <span>Live Stream Tick: {lastTickTime}</span>
+                </span>
+              </div>
+              <h2 className="text-xl font-bold text-white mt-1.5 tracking-tight">COUPLE STRESS INDEX (CSI %) GAUGE</h2>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Dynamic dyadic recalculation: <code className="text-[#FF8A3D] font-mono bg-white/5 px-1.5 py-0.5 rounded">CSI_couple = 0.60 × Arif + 0.40 × Arya</code>
+              </p>
+            </div>
+
+            <div className="flex items-center gap-4">
+              <div className="text-right">
+                <div className="text-4xl font-extrabold text-white font-mono tracking-tight flex items-center justify-end gap-2">
+                  <span>{(dyadicCSI * 100).toFixed(0)}%</span>
+                  <span className={`text-xs font-bold px-2.5 py-1 rounded-full uppercase tracking-wider ${
+                    dyadicCSI >= 0.70 ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30' :
+                    dyadicCSI >= 0.40 ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30' :
+                    'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                  }`}>
+                    {dyadicCSI >= 0.70 ? 'High Dyadic Stress Alert' : dyadicCSI >= 0.40 ? 'Moderate Co-Regulation' : 'Optimal Synchrony'}
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-400 font-mono mt-1">
+                  Arif (60%): {(liveArif.couple_stress_index * 100).toFixed(0)}% • Arya (40%): {(liveArya.couple_stress_index * 100).toFixed(0)}%
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Dynamic Progress Bar */}
+          <div className="mt-4 flex flex-col gap-2">
+            <div className="w-full bg-black/50 h-3.5 rounded-full overflow-hidden border border-white/10 p-0.5">
+              <div 
+                className={`h-full rounded-full transition-all duration-700 ${
+                  dyadicCSI >= 0.70 ? 'bg-gradient-to-r from-amber-500 to-rose-500 shadow-[0_0_15px_rgba(244,63,94,0.7)]' :
+                  dyadicCSI >= 0.40 ? 'bg-gradient-to-r from-emerald-500 to-amber-500 shadow-[0_0_15px_rgba(245,158,11,0.7)]' :
+                  'bg-gradient-to-r from-cyan-500 to-emerald-500 shadow-[0_0_15px_rgba(16,185,129,0.7)]'
+                }`}
+                style={{ width: `${Math.min(100, Math.max(5, dyadicCSI * 100))}%` }}
+              />
+            </div>
+            <div className="flex justify-between text-[10px] font-mono text-slate-500 px-1">
+              <span>0% (Parasympathetic Equilibrium)</span>
+              <span>50% (Baseline Co-Regulation)</span>
+              <span>100% (Acute Dyadic Escalation)</span>
+            </div>
+          </div>
+        </section>
+
+        {/* 3. DEDICATED LIVE TEST PROFILES (ARYA & ARIF) */}
+        <section className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          
+          {/* Profile A: Arif (Female) */}
+          <div className="bg-[#121015]/90 border border-purple-500/25 hover:border-purple-500/50 rounded-3xl p-5 shadow-2xl transition-all relative overflow-hidden flex flex-col gap-4">
+            <div className="flex items-center justify-between border-b border-white/10 pb-3">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-purple-500/20 border border-purple-500/30 flex items-center justify-center text-purple-300 font-bold text-lg shadow-md shadow-purple-500/10">
+                  ♀
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-base font-bold text-white">Arif</h3>
+                    <span className="text-[10px] font-mono uppercase px-2 py-0.5 rounded-md bg-purple-500/20 text-purple-300 border border-purple-500/30">
+                      Female • Infradian Rhythm
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-400">Target Profile A • Paired with Arya</p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-purple-500/10 border border-purple-500/30 text-purple-300 text-xs font-semibold font-mono">
+                <span>Day 24 • Late-Luteal Phase</span>
+              </div>
+            </div>
+
+            {/* Live Metrics Grid */}
+            <div className="grid grid-cols-4 gap-2.5 bg-black/40 p-3 rounded-2xl border border-white/5 font-mono">
+              <div className="flex flex-col">
+                <span className="text-[10px] text-slate-500 uppercase">Live HRV</span>
+                <span className="text-lg font-bold text-rose-300">{liveArif.hrv_ms} ms</span>
+                <span className="text-[9px] text-slate-500">Baseline 35–50</span>
+              </div>
+              <div className="flex flex-col">
+                <span className="text-[10px] text-slate-500 uppercase">Resting HR</span>
+                <span className="text-lg font-bold text-white">{liveArif.heart_rate_bpm} bpm</span>
+                <span className="text-[9px] text-slate-500">Baseline 75–95</span>
+              </div>
+              <div className="flex flex-col">
+                <span className="text-[10px] text-slate-500 uppercase">Cortisol State</span>
+                <span className="text-lg font-bold text-rose-400 flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-rose-400 animate-ping" />
+                  {liveArif.cortisol_state}
+                </span>
+                <span className="text-[9px] text-slate-500">Elevated Flag</span>
+              </div>
+              <div className="flex flex-col">
+                <span className="text-[10px] text-slate-500 uppercase">Stress Score</span>
+                <span className="text-lg font-bold text-rose-300">{(liveArif.couple_stress_index * 100).toFixed(0)}%</span>
+                <span className="text-[9px] text-slate-500">Weight 60%</span>
+              </div>
+            </div>
+
+            {/* Huberman Protocol Recommendation */}
+            <div className="p-3 rounded-xl bg-purple-500/5 border border-purple-500/20 text-xs text-slate-300 flex items-start gap-2.5">
+              <Sparkles className="w-4 h-4 text-purple-400 shrink-0 mt-0.5" />
+              <p className="leading-relaxed">
+                <strong className="text-purple-300">Huberman Protocol:</strong> Late-luteal progesterone drop & cortisol sensitivity. Deploy 2–3 double physiological sighs for acute vagal tone activation; drop bedroom temp by 2°F (64–66°F).
+              </p>
+            </div>
+          </div>
+
+          {/* Profile B: Arya (Male) */}
+          <div className="bg-[#121015]/90 border border-cyan-500/25 hover:border-cyan-500/50 rounded-3xl p-5 shadow-2xl transition-all relative overflow-hidden flex flex-col gap-4">
+            <div className="flex items-center justify-between border-b border-white/10 pb-3">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-cyan-500/20 border border-cyan-500/30 flex items-center justify-center text-cyan-300 font-bold text-lg shadow-md shadow-cyan-500/10">
+                  ♂
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-base font-bold text-white">Arya</h3>
+                    <span className="text-[10px] font-mono uppercase px-2 py-0.5 rounded-md bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
+                      Male • Diurnal Circadian
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-400">Target Profile B • Paired with Arif</p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-cyan-500/10 border border-cyan-500/30 text-cyan-300 text-xs font-semibold font-mono">
+                <span>Male Circadian Recovery</span>
+              </div>
+            </div>
+
+            {/* Live Metrics Grid */}
+            <div className="grid grid-cols-4 gap-2.5 bg-black/40 p-3 rounded-2xl border border-white/5 font-mono">
+              <div className="flex flex-col">
+                <span className="text-[10px] text-slate-500 uppercase">Live HRV</span>
+                <span className="text-lg font-bold text-emerald-300">{liveArya.hrv_ms} ms</span>
+                <span className="text-[9px] text-slate-500">Baseline 65–85</span>
+              </div>
+              <div className="flex flex-col">
+                <span className="text-[10px] text-slate-500 uppercase">Resting HR</span>
+                <span className="text-lg font-bold text-white">{liveArya.heart_rate_bpm} bpm</span>
+                <span className="text-[9px] text-slate-500">Baseline 58–68</span>
+              </div>
+              <div className="flex flex-col">
+                <span className="text-[10px] text-slate-500 uppercase">Cortisol State</span>
+                <span className="text-lg font-bold text-emerald-400 flex items-center gap-1">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                  {liveArya.cortisol_state}
+                </span>
+                <span className="text-[9px] text-slate-500">Homeostatic</span>
+              </div>
+              <div className="flex flex-col">
+                <span className="text-[10px] text-slate-500 uppercase">Stress Score</span>
+                <span className="text-lg font-bold text-emerald-300">{(liveArya.couple_stress_index * 100).toFixed(0)}%</span>
+                <span className="text-[9px] text-slate-500">Weight 40%</span>
+              </div>
+            </div>
+
+            {/* Huberman Protocol Recommendation */}
+            <div className="p-3 rounded-xl bg-cyan-500/5 border border-cyan-500/20 text-xs text-slate-300 flex items-start gap-2.5">
+              <Sparkles className="w-4 h-4 text-cyan-400 shrink-0 mt-0.5" />
+              <p className="leading-relaxed">
+                <strong className="text-cyan-300">Huberman Protocol:</strong> Circadian anchor intact. 10–15 min viewing morning sunlight anchors nighttime melatonin release and maintains parasympathetic autonomic buffer.
+              </p>
             </div>
           </div>
 

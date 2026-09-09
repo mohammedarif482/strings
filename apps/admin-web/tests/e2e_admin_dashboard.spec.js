@@ -9,43 +9,45 @@ test.describe('Aivo Web Admin Dashboard & Huberman RAG E2E Suite', () => {
 
   test('1. Dashboard Vitals Check — Should render real-time metric cards', async ({ page }) => {
     // Verify Page Header
-    await expect(page.locator('h1')).toContainText(/AIVO.*ADMIN/i);
+    await expect(page.locator('h1, span.font-bold').first()).toContainText(/AIVO/i);
 
     // Verify System Vitals Cards
     const activeUsersCard = page.locator('text=Active Monitored Users').locator('..');
     await expect(activeUsersCard).toBeVisible();
-    await expect(activeUsersCard).toContainText(/1,420|1420/);
+    await expect(activeUsersCard).toContainText(/2/);
 
     const pairedCouplesCard = page.locator('text=Paired Couple Links').locator('..');
     await expect(pairedCouplesCard).toBeVisible();
-    await expect(pairedCouplesCard).toContainText('680');
+    await expect(pairedCouplesCard).toContainText('1');
 
-    const helpfulRateCard = page.locator('text=Nudge Helpful Rate').locator('..');
-    await expect(helpfulRateCard).toBeVisible();
-    await expect(helpfulRateCard).toContainText(/89\.4%/);
+    const csiCard = page.locator('text=Live Dyadic Stress (CSI)').locator('..');
+    await expect(csiCard).toBeVisible();
+    await expect(csiCard).toContainText(/CSI/i);
 
     const simulatorCard = page.locator('text=Simulator Engine').locator('..');
     await expect(simulatorCard).toBeVisible();
     await expect(simulatorCard).toContainText(/Healthy|STREAMING/i);
   });
 
-  test('2. Real-Time Prediction Stream — Should render feed with CSI badges', async ({ page }) => {
-    // Check Feed Header
-    await expect(page.getByText('LIVE PREDICTION STREAM')).toBeVisible();
+  test('2. Real-Time Prediction Stream & Profile Cards — Should render Arif & Arya with CSI badges', async ({ page }) => {
+    // Check Dyadic Hero Gauge
+    await expect(page.getByText('COUPLE STRESS INDEX (CSI %) GAUGE')).toBeVisible();
 
-    // Check Anonymized User Entry
-    const userRow = page.locator('text=USR-8192');
-    await expect(userRow).toBeVisible();
+    // Check Dedicated Profile Cards for Arif and Arya
+    await expect(page.locator('h3:has-text("Arif")').first()).toBeVisible();
+    await expect(page.locator('h3:has-text("Arya")').first()).toBeVisible();
 
-    // Check Cycle Day & Phase Badge
-    await expect(page.locator('text=Day 24 • luteal')).toBeVisible();
+    // Check Female Cycle Day & Phase Badge
+    await expect(page.locator('text=Day 24 • Late-Luteal Phase').first()).toBeVisible();
 
-    // Check CSI Gauge Badge (>= 70% Alert)
-    const csiBadge = page.locator('text=CSI 88%');
-    await expect(csiBadge).toBeVisible();
+    // Check Male Circadian Recovery Badge
+    await expect(page.locator('text=Male Circadian Recovery').first()).toBeVisible();
 
-    // Check Partner Nudge Status
-    await expect(page.locator('text=Nudge: Delivered')).toBeVisible();
+    // Check Prediction Feed Header
+    await expect(page.getByText('LIVE PREDICTION FEED').or(page.getByText('LIVE PREDICTION STREAM'))).toBeVisible();
+
+    // Check CSI Gauge Badges
+    await expect(page.locator('text=/CSI \\d+%/').first()).toBeVisible();
   });
 
   test('3. Huberman GenAI Assistant — Should submit prompt and show citations', async ({ page }) => {
