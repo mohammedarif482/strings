@@ -22,9 +22,9 @@ export default function AdminDashboard({ onBackToSimulator }) {
   const [lastTickTime, setLastTickTime] = useState('10s loop');
   const [isLiveConnected, setIsLiveConnected] = useState(false);
 
-  const [liveArif, setLiveArif] = useState({
-    user_id: 'arif_female',
-    display_name: 'Arif',
+  const [liveArya, setLiveArya] = useState({
+    user_id: 'arya_female',
+    display_name: 'Arya',
     gender: 'female',
     hrv_ms: 42,
     heart_rate_bpm: 85,
@@ -34,9 +34,9 @@ export default function AdminDashboard({ onBackToSimulator }) {
     couple_stress_index: 0.82
   });
 
-  const [liveArya, setLiveArya] = useState({
-    user_id: 'arya_male',
-    display_name: 'Arya',
+  const [liveArif, setLiveArif] = useState({
+    user_id: 'arif_male',
+    display_name: 'Arif',
     gender: 'male',
     hrv_ms: 75,
     heart_rate_bpm: 63,
@@ -62,9 +62,9 @@ export default function AdminDashboard({ onBackToSimulator }) {
 
   const [predictions, setPredictions] = useState([
     {
-      id: 'pred_arif_init',
-      user_anonymized_id: 'Arif',
-      partner_anonymized_id: 'Arya',
+      id: 'pred_arya_init',
+      user_anonymized_id: 'Arya',
+      partner_anonymized_id: 'Arif',
       gender: 'female',
       cycle_day: 24,
       cycle_phase: 'Luteal',
@@ -78,9 +78,9 @@ export default function AdminDashboard({ onBackToSimulator }) {
       created_at: 'Just now'
     },
     {
-      id: 'pred_arya_init',
-      user_anonymized_id: 'Arya',
-      partner_anonymized_id: 'Arif',
+      id: 'pred_arif_init',
+      user_anonymized_id: 'Arif',
+      partner_anonymized_id: 'Arya',
       gender: 'male',
       cycle_day: null,
       cycle_phase: 'Circadian Recovery',
@@ -147,57 +147,57 @@ export default function AdminDashboard({ onBackToSimulator }) {
 
           // 2. Extract and bind live telemetry metrics for Arya and Arif
           if (payload.profiles && Array.isArray(payload.profiles)) {
-            const arifProf = payload.profiles.find(p => p.user_id === 'arif_female' || p.display_name === 'Arif' || p.user_id === 'USR-ALPHA');
-            const aryaProf = payload.profiles.find(p => p.user_id === 'arya_male' || p.display_name === 'Arya' || p.user_id === 'USR-BETA');
-
-            if (arifProf) {
-              setLiveArif(prev => ({
-                ...prev,
-                hrv_ms: arifProf.hrv_ms,
-                heart_rate_bpm: arifProf.heart_rate_bpm,
-                cycle_phase: arifProf.cycle_phase || 'Luteal Day 24',
-                cortisol_state: arifProf.cortisol_state || 'High',
-                couple_stress_index: arifProf.couple_stress_index
-              }));
-            }
+            const aryaProf = payload.profiles.find(p => p.user_id === 'arya_female' || p.display_name === 'Arya' || p.user_id === 'USR-ALPHA');
+            const arifProf = payload.profiles.find(p => p.user_id === 'arif_male' || p.display_name === 'Arif' || p.user_id === 'USR-BETA');
 
             if (aryaProf) {
               setLiveArya(prev => ({
                 ...prev,
                 hrv_ms: aryaProf.hrv_ms,
                 heart_rate_bpm: aryaProf.heart_rate_bpm,
-                cycle_phase: null,
-                circadian_status: 'Circadian Recovery',
-                cortisol_state: aryaProf.cortisol_state || 'Normal',
+                cycle_phase: aryaProf.cycle_phase || 'Luteal Day 24',
+                cortisol_state: aryaProf.cortisol_state || 'High',
                 couple_stress_index: aryaProf.couple_stress_index
               }));
             }
 
+            if (arifProf) {
+              setLiveArif(prev => ({
+                ...prev,
+                hrv_ms: arifProf.hrv_ms,
+                heart_rate_bpm: arifProf.heart_rate_bpm,
+                cycle_phase: null,
+                circadian_status: 'Circadian Recovery',
+                cortisol_state: arifProf.cortisol_state || 'Normal',
+                couple_stress_index: arifProf.couple_stress_index
+              }));
+            }
+
             const livePreds = payload.profiles.map((prof) => {
-              const isArif = prof.user_id === 'arif_female' || prof.user_id === 'USR-ALPHA' || prof.display_name === 'Arif';
-              const displayName = prof.display_name || (isArif ? 'Arif' : 'Arya');
-              const partnerName = isArif ? 'Arya' : 'Arif';
-              const csi = prof.couple_stress_index ?? (isArif ? 0.82 : 0.24);
+              const isArya = prof.user_id === 'arya_female' || prof.user_id === 'USR-ALPHA' || prof.display_name === 'Arya';
+              const displayName = prof.display_name || (isArya ? 'Arya' : 'Arif');
+              const partnerName = isArya ? 'Arif' : 'Arya';
+              const csi = prof.couple_stress_index ?? (isArya ? 0.82 : 0.24);
 
               return {
                 id: `live_${prof.user_id}_${Date.now()}`,
                 user_anonymized_id: displayName,
                 partner_anonymized_id: partnerName,
-                gender: prof.gender || (isArif ? 'female' : 'male'),
-                cycle_day: isArif ? 24 : null,
-                cycle_phase: isArif ? (prof.cycle_phase || 'Luteal Day 24') : 'Circadian Recovery',
+                gender: prof.gender || (isArya ? 'female' : 'male'),
+                cycle_day: isArya ? 24 : null,
+                cycle_phase: isArya ? (prof.cycle_phase || 'Luteal Day 24') : 'Circadian Recovery',
                 combined_stress_index: csi,
                 hrv_ms: prof.hrv_ms,
                 heart_rate_bpm: prof.heart_rate_bpm,
                 cortisol_state: prof.cortisol_state,
                 confidence_score: 0.94,
-                predicted_state: isArif ? 'High Stress & Cortisol Shift' : 'Restorative Autonomic Baseline',
-                primary_driver: isArif
+                predicted_state: isArya ? 'High Stress & Cortisol Shift' : 'Restorative Autonomic Baseline',
+                primary_driver: isArya
                   ? `Late-luteal sensitivity (Day 24) • HRV ${prof.hrv_ms}ms • HR ${prof.heart_rate_bpm}bpm • Cortisol ${prof.cortisol_state}.`
                   : `Diurnal circadian recovery • HRV ${prof.hrv_ms}ms • HR ${prof.heart_rate_bpm}bpm • Cortisol ${prof.cortisol_state}.`,
-                state_tag: isArif ? 'luteal_high_cortisol' : 'circadian_optimal',
-                partner_nudge_status: isArif ? 'delivered' : 'not_triggered',
-                partner_tapback_reaction: isArif ? '❤️' : null,
+                state_tag: isArya ? 'luteal_high_cortisol' : 'circadian_optimal',
+                partner_nudge_status: isArya ? 'delivered' : 'not_triggered',
+                partner_tapback_reaction: isArya ? '❤️' : null,
                 created_at: 'Live Stream'
               };
             });
@@ -370,7 +370,7 @@ export default function AdminDashboard({ onBackToSimulator }) {
                 2
               </div>
               <div className="flex items-center gap-1 mt-1 text-[11px] text-emerald-400">
-                <span>Arya (male) & Arif (female)</span>
+                <span>Arya (female) & Arif (male)</span>
               </div>
             </div>
           </div>
@@ -406,7 +406,7 @@ export default function AdminDashboard({ onBackToSimulator }) {
                 CSI {(dyadicCSI * 100).toFixed(0)}%
               </div>
               <div className="flex items-center gap-1 mt-1 text-[11px] text-amber-400 font-mono">
-                <span>0.60×Arif + 0.40×Arya</span>
+                <span>0.60×Arya + 0.40×Arif</span>
               </div>
             </div>
           </div>
@@ -448,7 +448,7 @@ export default function AdminDashboard({ onBackToSimulator }) {
               </div>
               <h2 className="text-xl font-bold text-white mt-1.5 tracking-tight">COUPLE STRESS INDEX (CSI %) GAUGE</h2>
               <p className="text-xs text-slate-400 mt-0.5">
-                Dynamic dyadic recalculation: <code className="text-[#FF8A3D] font-mono bg-white/5 px-1.5 py-0.5 rounded">CSI_couple = 0.60 × Arif + 0.40 × Arya</code>
+                Dynamic dyadic recalculation: <code className="text-[#FF8A3D] font-mono bg-white/5 px-1.5 py-0.5 rounded">CSI_couple = 0.60 × Arya + 0.40 × Arif</code>
               </p>
             </div>
 
@@ -465,7 +465,7 @@ export default function AdminDashboard({ onBackToSimulator }) {
                   </span>
                 </div>
                 <p className="text-[11px] text-slate-400 font-mono mt-1">
-                  Arif (60%): {(liveArif.couple_stress_index * 100).toFixed(0)}% • Arya (40%): {(liveArya.couple_stress_index * 100).toFixed(0)}%
+                  Arya (60%): {(liveArya.couple_stress_index * 100).toFixed(0)}% • Arif (40%): {(liveArif.couple_stress_index * 100).toFixed(0)}%
                 </p>
               </div>
             </div>
@@ -494,7 +494,7 @@ export default function AdminDashboard({ onBackToSimulator }) {
         {/* 3. DEDICATED LIVE TEST PROFILES (ARYA & ARIF) */}
         <section className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           
-          {/* Profile A: Arif (Female) */}
+          {/* Profile A: Arya (Female) */}
           <div className="bg-[#121015]/90 border border-purple-500/25 hover:border-purple-500/50 rounded-3xl p-5 shadow-2xl transition-all relative overflow-hidden flex flex-col gap-4">
             <div className="flex items-center justify-between border-b border-white/10 pb-3">
               <div className="flex items-center gap-3">
@@ -503,12 +503,12 @@ export default function AdminDashboard({ onBackToSimulator }) {
                 </div>
                 <div>
                   <div className="flex items-center gap-2">
-                    <h3 className="text-base font-bold text-white">Arif</h3>
+                    <h3 className="text-base font-bold text-white">Arya</h3>
                     <span className="text-[10px] font-mono uppercase px-2 py-0.5 rounded-md bg-purple-500/20 text-purple-300 border border-purple-500/30">
                       Female • Infradian Rhythm
                     </span>
                   </div>
-                  <p className="text-[11px] text-slate-400">Target Profile A • Paired with Arya</p>
+                  <p className="text-[11px] text-slate-400">Target Profile A • Paired with Arif</p>
                 </div>
               </div>
 
@@ -521,25 +521,25 @@ export default function AdminDashboard({ onBackToSimulator }) {
             <div className="grid grid-cols-4 gap-2.5 bg-black/40 p-3 rounded-2xl border border-white/5 font-mono">
               <div className="flex flex-col">
                 <span className="text-[10px] text-slate-500 uppercase">Live HRV</span>
-                <span className="text-lg font-bold text-rose-300">{liveArif.hrv_ms} ms</span>
+                <span className="text-lg font-bold text-rose-300">{liveArya.hrv_ms} ms</span>
                 <span className="text-[9px] text-slate-500">Baseline 35–50</span>
               </div>
               <div className="flex flex-col">
                 <span className="text-[10px] text-slate-500 uppercase">Resting HR</span>
-                <span className="text-lg font-bold text-white">{liveArif.heart_rate_bpm} bpm</span>
+                <span className="text-lg font-bold text-white">{liveArya.heart_rate_bpm} bpm</span>
                 <span className="text-[9px] text-slate-500">Baseline 75–95</span>
               </div>
               <div className="flex flex-col">
                 <span className="text-[10px] text-slate-500 uppercase">Cortisol State</span>
                 <span className="text-lg font-bold text-rose-400 flex items-center gap-1">
                   <span className="w-1.5 h-1.5 rounded-full bg-rose-400 animate-ping" />
-                  {liveArif.cortisol_state}
+                  {liveArya.cortisol_state}
                 </span>
                 <span className="text-[9px] text-slate-500">Elevated Flag</span>
               </div>
               <div className="flex flex-col">
                 <span className="text-[10px] text-slate-500 uppercase">Stress Score</span>
-                <span className="text-lg font-bold text-rose-300">{(liveArif.couple_stress_index * 100).toFixed(0)}%</span>
+                <span className="text-lg font-bold text-rose-300">{(liveArya.couple_stress_index * 100).toFixed(0)}%</span>
                 <span className="text-[9px] text-slate-500">Weight 60%</span>
               </div>
             </div>
@@ -553,7 +553,7 @@ export default function AdminDashboard({ onBackToSimulator }) {
             </div>
           </div>
 
-          {/* Profile B: Arya (Male) */}
+          {/* Profile B: Arif (Male) */}
           <div className="bg-[#121015]/90 border border-cyan-500/25 hover:border-cyan-500/50 rounded-3xl p-5 shadow-2xl transition-all relative overflow-hidden flex flex-col gap-4">
             <div className="flex items-center justify-between border-b border-white/10 pb-3">
               <div className="flex items-center gap-3">
@@ -562,12 +562,12 @@ export default function AdminDashboard({ onBackToSimulator }) {
                 </div>
                 <div>
                   <div className="flex items-center gap-2">
-                    <h3 className="text-base font-bold text-white">Arya</h3>
+                    <h3 className="text-base font-bold text-white">Arif</h3>
                     <span className="text-[10px] font-mono uppercase px-2 py-0.5 rounded-md bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
                       Male • Diurnal Circadian
                     </span>
                   </div>
-                  <p className="text-[11px] text-slate-400">Target Profile B • Paired with Arif</p>
+                  <p className="text-[11px] text-slate-400">Target Profile B • Paired with Arya</p>
                 </div>
               </div>
 
@@ -580,25 +580,25 @@ export default function AdminDashboard({ onBackToSimulator }) {
             <div className="grid grid-cols-4 gap-2.5 bg-black/40 p-3 rounded-2xl border border-white/5 font-mono">
               <div className="flex flex-col">
                 <span className="text-[10px] text-slate-500 uppercase">Live HRV</span>
-                <span className="text-lg font-bold text-emerald-300">{liveArya.hrv_ms} ms</span>
+                <span className="text-lg font-bold text-emerald-300">{liveArif.hrv_ms} ms</span>
                 <span className="text-[9px] text-slate-500">Baseline 65–85</span>
               </div>
               <div className="flex flex-col">
                 <span className="text-[10px] text-slate-500 uppercase">Resting HR</span>
-                <span className="text-lg font-bold text-white">{liveArya.heart_rate_bpm} bpm</span>
+                <span className="text-lg font-bold text-white">{liveArif.heart_rate_bpm} bpm</span>
                 <span className="text-[9px] text-slate-500">Baseline 58–68</span>
               </div>
               <div className="flex flex-col">
                 <span className="text-[10px] text-slate-500 uppercase">Cortisol State</span>
                 <span className="text-lg font-bold text-emerald-400 flex items-center gap-1">
                   <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-                  {liveArya.cortisol_state}
+                  {liveArif.cortisol_state}
                 </span>
                 <span className="text-[9px] text-slate-500">Homeostatic</span>
               </div>
               <div className="flex flex-col">
                 <span className="text-[10px] text-slate-500 uppercase">Stress Score</span>
-                <span className="text-lg font-bold text-emerald-300">{(liveArya.couple_stress_index * 100).toFixed(0)}%</span>
+                <span className="text-lg font-bold text-emerald-300">{(liveArif.couple_stress_index * 100).toFixed(0)}%</span>
                 <span className="text-[9px] text-slate-500">Weight 40%</span>
               </div>
             </div>

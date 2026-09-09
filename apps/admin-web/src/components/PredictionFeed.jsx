@@ -29,29 +29,29 @@ export default function PredictionFeed({ predictions: initialPredictions = [] })
           const payload = JSON.parse(e.data);
           if (payload.profiles && Array.isArray(payload.profiles)) {
             const liveRecords = payload.profiles.map((prof) => {
-              const isArif = prof.user_id === 'arif_female' || prof.user_id === 'Arif' || prof.user_id === 'USR-ALPHA';
-              const name = isArif ? 'Arif' : 'Arya';
-              const partnerName = isArif ? 'Arya' : 'Arif';
-              const csi = prof.couple_stress_index ?? (isArif ? 0.82 : 0.24);
-              const phase = prof.cycle_phase || (isArif ? 'Luteal Day 24' : 'Circadian Recovery');
+              const isArya = prof.user_id === 'arya_female' || prof.user_id === 'Arya' || prof.user_id === 'USR-ALPHA';
+              const name = isArya ? 'Arya' : 'Arif';
+              const partnerName = isArya ? 'Arif' : 'Arya';
+              const csi = prof.couple_stress_index ?? (isArya ? 0.82 : 0.24);
+              const phase = prof.cycle_phase || (isArya ? 'Luteal Day 24' : 'Circadian Recovery');
 
               return {
                 id: `live_${prof.user_id}_${Date.now()}`,
                 user_anonymized_id: name,
                 partner_anonymized_id: partnerName,
-                gender: isArif ? 'female' : 'male',
-                cycle_day: isArif ? 24 : null,
+                gender: isArya ? 'female' : 'male',
+                cycle_day: isArya ? 24 : null,
                 cycle_phase: phase,
                 combined_stress_index: csi,
                 hrv_ms: prof.hrv_ms,
                 heart_rate_bpm: prof.heart_rate_bpm,
                 cortisol_state: prof.cortisol_state,
-                predicted_state: isArif ? 'High Stress / Cortisol Elevation' : 'Restorative Autonomic Baseline',
-                primary_driver: isArif
+                predicted_state: isArya ? 'High Stress / Cortisol Elevation' : 'Restorative Autonomic Baseline',
+                primary_driver: isArya
                   ? `Late-luteal sensitivity (Day 24) • HRV ${prof.hrv_ms}ms • HR ${prof.heart_rate_bpm}bpm • Cortisol ${prof.cortisol_state}.`
                   : `Diurnal circadian recovery • HRV ${prof.hrv_ms}ms • HR ${prof.heart_rate_bpm}bpm • Cortisol ${prof.cortisol_state}.`,
-                partner_nudge_status: isArif ? 'delivered' : 'not_triggered',
-                partner_tapback_reaction: isArif ? '❤️' : null,
+                partner_nudge_status: isArya ? 'delivered' : 'not_triggered',
+                partner_tapback_reaction: isArya ? '❤️' : null,
                 created_at: 'Live Stream'
               };
             });

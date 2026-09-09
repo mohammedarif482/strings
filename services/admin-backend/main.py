@@ -65,8 +65,8 @@ IN_MEMORY_DB = {
     "users": [
         {"id": "usr_alex", "email": "alex@aivo.health", "partner_id": "usr_sarah", "cycle_start_date": "2026-08-20", "average_cycle_length": 28},
         {"id": "usr_sarah", "email": "sarah@aivo.health", "partner_id": "usr_alex", "cycle_start_date": "2026-08-15", "average_cycle_length": 28},
-        {"id": "arif_female", "email": "arif@aivo.health", "name": "Arif", "gender": "female", "partner_id": "arya_male", "cycle_start_date": "2026-08-17", "average_cycle_length": 28},
-        {"id": "arya_male", "email": "arya@aivo.health", "name": "Arya", "gender": "male", "partner_id": "arif_female", "cycle_start_date": None, "average_cycle_length": None}
+        {"id": "arya_female", "email": "arya@aivo.health", "name": "Arya", "gender": "female", "partner_id": "arif_male", "cycle_start_date": "2026-08-17", "average_cycle_length": 28},
+        {"id": "arif_male", "email": "arif@aivo.health", "name": "Arif", "gender": "male", "partner_id": "arya_female", "cycle_start_date": None, "average_cycle_length": None}
     ],
     "checkins": [],
     "nudges": [],
@@ -130,13 +130,13 @@ async def broadcast_stream_event(event_dict: Dict[str, Any]):
 
 async def run_biometrics_simulation_loop():
     """Autonomous 10-second biometrics simulation engine loop with dual-schema output."""
-    print("[Simulator] Initializing 10-second biometrics telemetry background loop (Arif & Arya)...")
+    print("[Simulator] Initializing 10-second biometrics telemetry background loop (Arya & Arif)...")
     while True:
         try:
             ticks = simulator.generate_telemetry_tick()
-            arif_tick = next((t for t in ticks if t.user_id == "arif_female"), ticks[0])
-            arya_tick = next((t for t in ticks if t.user_id == "arya_male"), ticks[1] if len(ticks) > 1 else ticks[0])
-            combined_csi = simulator.compute_couple_stress_index(arif_tick, arya_tick)
+            arya_tick = next((t for t in ticks if t.user_id == "arya_female"), ticks[0])
+            arif_tick = next((t for t in ticks if t.user_id == "arif_male"), ticks[1] if len(ticks) > 1 else ticks[0])
+            combined_csi = simulator.compute_couple_stress_index(arya_tick, arif_tick)
 
             # 1. Persist to DB / in-memory
             await persist_telemetry_records(ticks)
@@ -147,18 +147,18 @@ async def run_biometrics_simulation_loop():
                 "type": "VITALS_TICK",
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "profiles": [t.to_dict() if hasattr(t, "to_dict") else t.dict() for t in ticks],
-                "user_id": "arif_female",
+                "user_id": "arya_female",
                 "payload": {
                     "vitals": {
-                        "hrv": float(arif_tick.hrv_ms),
-                        "restingHR": int(arif_tick.heart_rate_bpm),
+                        "hrv": float(arya_tick.hrv_ms),
+                        "restingHR": int(arya_tick.heart_rate_bpm),
                         "deepSleepRatio": 0.22
                     }
                 },
-                "hrv": arif_tick.hrv_ms,
-                "resting_hr": arif_tick.heart_rate_bpm,
-                "cycle_phase": arif_tick.cycle_phase,
-                "cortisol_state": arif_tick.cortisol_state,
+                "hrv": arya_tick.hrv_ms,
+                "resting_hr": arya_tick.heart_rate_bpm,
+                "cycle_phase": arya_tick.cycle_phase,
+                "cortisol_state": arya_tick.cortisol_state,
                 "couple_stress_index": combined_csi,
                 "combined_couple_stress_index": combined_csi,
             }
@@ -347,27 +347,27 @@ async def stream_telemetry(request: Request):
         try:
             # Yield initial snapshot immediately so client gets data on connect
             ticks = simulator.generate_telemetry_tick()
-            arif_tick = next((t for t in ticks if t.user_id == "arif_female"), ticks[0])
-            arya_tick = next((t for t in ticks if t.user_id == "arya_male"), ticks[1] if len(ticks) > 1 else ticks[0])
-            combined_csi = simulator.compute_couple_stress_index(arif_tick, arya_tick)
+            arya_tick = next((t for t in ticks if t.user_id == "arya_female"), ticks[0])
+            arif_tick = next((t for t in ticks if t.user_id == "arif_male"), ticks[1] if len(ticks) > 1 else ticks[0])
+            combined_csi = simulator.compute_couple_stress_index(arya_tick, arif_tick)
 
             initial_event = {
                 "event": "biometric_telemetry",
                 "type": "VITALS_TICK",
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "profiles": [t.to_dict() if hasattr(t, "to_dict") else t.dict() for t in ticks],
-                "user_id": "arif_female",
+                "user_id": "arya_female",
                 "payload": {
                     "vitals": {
-                        "hrv": float(arif_tick.hrv_ms),
-                        "restingHR": int(arif_tick.heart_rate_bpm),
+                        "hrv": float(arya_tick.hrv_ms),
+                        "restingHR": int(arya_tick.heart_rate_bpm),
                         "deepSleepRatio": 0.22
                     }
                 },
-                "hrv": arif_tick.hrv_ms,
-                "resting_hr": arif_tick.heart_rate_bpm,
-                "cycle_phase": arif_tick.cycle_phase,
-                "cortisol_state": arif_tick.cortisol_state,
+                "hrv": arya_tick.hrv_ms,
+                "resting_hr": arya_tick.heart_rate_bpm,
+                "cycle_phase": arya_tick.cycle_phase,
+                "cortisol_state": arya_tick.cortisol_state,
                 "couple_stress_index": combined_csi,
                 "combined_couple_stress_index": combined_csi,
             }
@@ -402,27 +402,27 @@ async def websocket_stream_telemetry(websocket: WebSocket):
     STREAM_SUBSCRIBERS.add(q)
     try:
         ticks = simulator.generate_telemetry_tick()
-        arif_tick = next((t for t in ticks if t.user_id == "arif_female"), ticks[0])
-        arya_tick = next((t for t in ticks if t.user_id == "arya_male"), ticks[1] if len(ticks) > 1 else ticks[0])
-        combined_csi = simulator.compute_couple_stress_index(arif_tick, arya_tick)
+        arya_tick = next((t for t in ticks if t.user_id == "arya_female"), ticks[0])
+        arif_tick = next((t for t in ticks if t.user_id == "arif_male"), ticks[1] if len(ticks) > 1 else ticks[0])
+        combined_csi = simulator.compute_couple_stress_index(arya_tick, arif_tick)
 
         initial_event = {
             "event": "biometric_telemetry",
             "type": "VITALS_TICK",
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "profiles": [t.to_dict() if hasattr(t, "to_dict") else t.dict() for t in ticks],
-            "user_id": "arif_female",
+            "user_id": "arya_female",
             "payload": {
                 "vitals": {
-                    "hrv": float(arif_tick.hrv_ms),
-                    "restingHR": int(arif_tick.heart_rate_bpm),
+                    "hrv": float(arya_tick.hrv_ms),
+                    "restingHR": int(arya_tick.heart_rate_bpm),
                     "deepSleepRatio": 0.22
                 }
             },
-            "hrv": arif_tick.hrv_ms,
-            "resting_hr": arif_tick.heart_rate_bpm,
-            "cycle_phase": arif_tick.cycle_phase,
-            "cortisol_state": arif_tick.cortisol_state,
+            "hrv": arya_tick.hrv_ms,
+            "resting_hr": arya_tick.heart_rate_bpm,
+            "cycle_phase": arya_tick.cycle_phase,
+            "cortisol_state": arya_tick.cortisol_state,
             "couple_stress_index": combined_csi,
             "combined_couple_stress_index": combined_csi,
         }
@@ -483,10 +483,10 @@ async def seed_simulation(days: int = Query(default=14, ge=1, le=90)):
 
     return {
         "status": "success",
-        "message": f"Successfully generated and seeded {days} days of historical biometric data for Arif (female) and Arya (male).",
+        "message": f"Successfully generated and seeded {days} days of historical biometric data for Arya (female) and Arif (male).",
         "days_seeded": days,
-        "profiles": ["arif_female", "arya_male"],
-        "display_names": ["Arif", "Arya"],
+        "profiles": ["arya_female", "arif_male"],
+        "display_names": ["Arya", "Arif"],
         "total_telemetry_points": result["total_telemetry_points"],
         "total_checkin_records": result["total_checkin_records"],
         "telemetry_sample": result["telemetry_sample"],
@@ -498,7 +498,7 @@ async def seed_simulation(days: int = Query(default=14, ge=1, le=90)):
 def get_admin_analytics():
     return {
         "active_users": 2,
-        "active_profiles": ["arif_female", "arya_male", "Arif", "Arya"],
+        "active_profiles": ["arya_female", "arif_male", "Arya", "Arif"],
         "paired_couples": 1,
         "total_daily_predictions": len(IN_MEMORY_DB.get("telemetry", [])) + 24,
         "nudge_helpful_rate": 89.4,
@@ -515,44 +515,44 @@ def get_admin_analytics():
 
 @app.get("/api/v1/admin/logs/predictions")
 def get_prediction_logs(limit: int = 10, page: int = 1):
-    arif_telem = simulator.profile_arif.sample_telemetry()
     arya_telem = simulator.profile_arya.sample_telemetry()
-    csi_couple = simulator.compute_couple_stress_index(arif_telem, arya_telem)
+    arif_telem = simulator.profile_arif.sample_telemetry()
+    csi_couple = simulator.compute_couple_stress_index(arya_telem, arif_telem)
 
     feed = [
         {
-            "id": f"pred_arif_{int(time.time())}",
-            "user_anonymized_id": "Arif",
-            "partner_anonymized_id": "Arya",
+            "id": f"pred_arya_{int(time.time())}",
+            "user_anonymized_id": "Arya",
+            "partner_anonymized_id": "Arif",
             "gender": "female",
             "cycle_day": 24,
             "cycle_phase": "Luteal",
-            "combined_stress_index": arif_telem.couple_stress_index,
-            "hrv_ms": arif_telem.hrv_ms,
-            "heart_rate_bpm": arif_telem.heart_rate_bpm,
-            "cortisol_state": arif_telem.cortisol_state,
+            "combined_stress_index": arya_telem.couple_stress_index,
+            "hrv_ms": arya_telem.hrv_ms,
+            "heart_rate_bpm": arya_telem.heart_rate_bpm,
+            "cortisol_state": arya_telem.cortisol_state,
             "confidence_score": 0.94,
             "predicted_state": "High Stress & Cortisol Shift",
-            "primary_driver": f"Late-luteal sensitivity (Day 24) • HRV {arif_telem.hrv_ms}ms • HR {arif_telem.heart_rate_bpm}bpm • Cortisol {arif_telem.cortisol_state}.",
+            "primary_driver": f"Late-luteal sensitivity (Day 24) • HRV {arya_telem.hrv_ms}ms • HR {arya_telem.heart_rate_bpm}bpm • Cortisol {arya_telem.cortisol_state}.",
             "state_tag": "luteal_high_cortisol",
             "partner_nudge_status": "delivered",
             "partner_tapback_reaction": "❤️",
             "created_at": "Just now"
         },
         {
-            "id": f"pred_arya_{int(time.time())}",
-            "user_anonymized_id": "Arya",
-            "partner_anonymized_id": "Arif",
+            "id": f"pred_arif_{int(time.time())}",
+            "user_anonymized_id": "Arif",
+            "partner_anonymized_id": "Arya",
             "gender": "male",
             "cycle_day": None,
             "cycle_phase": "Circadian Recovery",
-            "combined_stress_index": arya_telem.couple_stress_index,
-            "hrv_ms": arya_telem.hrv_ms,
-            "heart_rate_bpm": arya_telem.heart_rate_bpm,
-            "cortisol_state": arya_telem.cortisol_state,
+            "combined_stress_index": arif_telem.couple_stress_index,
+            "hrv_ms": arif_telem.hrv_ms,
+            "heart_rate_bpm": arif_telem.heart_rate_bpm,
+            "cortisol_state": arif_telem.cortisol_state,
             "confidence_score": 0.91,
             "predicted_state": "Restorative Autonomic Baseline",
-            "primary_driver": f"Diurnal circadian recovery • HRV {arya_telem.hrv_ms}ms • HR {arya_telem.heart_rate_bpm}bpm • Cortisol {arya_telem.cortisol_state}.",
+            "primary_driver": f"Diurnal circadian recovery • HRV {arif_telem.hrv_ms}ms • HR {arif_telem.heart_rate_bpm}bpm • Cortisol {arif_telem.cortisol_state}.",
             "state_tag": "circadian_optimal",
             "partner_nudge_status": "not_triggered",
             "partner_tapback_reaction": None,
