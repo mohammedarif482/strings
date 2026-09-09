@@ -1,0 +1,12 @@
+{
+  "name": "@aivo/cloud-simulator",
+  "version": "1.0.0",
+  "description": "15-minute autonomous biometric wearable simulation worker",
+  "main": "src/worker.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/worker.js",
+    "dev": "node src/worker.js"
+  },
+  "dependencies": {}
+}

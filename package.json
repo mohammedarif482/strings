@@ -1,0 +1,25 @@
+{
+  "name": "aivo-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Monorepo for Aivo Predictive Biological Wellness Platform",
+  "workspaces": [
+    "apps/*",
+    "services/*"
+  ],
+  "scripts": {
+    "dev:backend": "npm --prefix services/api-backend run dev",
+    "dev:simulator": "npm --prefix services/cloud-simulator run dev",
+    "dev:admin": "npm --prefix apps/admin-web run dev",
+    "dev:all": "concurrently \"npm:dev:backend\" \"npm:dev:simulator\" \"npm:dev:admin\"",
+    "build:backend": "npm --prefix services/api-backend run build",
+    "build:admin": "npm --prefix apps/admin-web run build",
+    "test:backend": "npm --prefix services/api-backend test",
+    "db:up": "docker compose -f database/docker-compose.yml up -d",
+    "db:down": "docker compose -f database/docker-compose.yml down",
+    "setup": "bash scripts/dev-setup.sh"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}
